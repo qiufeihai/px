@@ -16,6 +16,7 @@ scripts/generate-cert.sh
 
 - `config/server-cert.pem`
 - `config/server-key.pem`
+- 自签 TLS 证书会同时带 `SAN`、`CA:TRUE` 和 `serverAuth`，用于客户端按证书文件固定服务端身份
 
 如果后面要部署到公网 VPS，再用 VPS 公网 IP 重新生成一次：
 
@@ -43,6 +44,7 @@ npm run tauri dev
 - GUI 会读取当前运行目录下的 `config/client.toml`
 - GUI 会启动共享 runtime
 - GUI 会使用 `config/server-cert.pem` 连接服务端
+- 若服务端重签证书，必须把新的 `server-cert.pem` 重新导入客户端
 
 ## 4. 做一次冒烟测试
 

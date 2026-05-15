@@ -28,8 +28,11 @@ CN = px-server
 
 [v3_req]
 subjectAltName = @alt_names
-keyUsage = critical, digitalSignature, keyEncipherment
+basicConstraints = critical, CA:TRUE
+keyUsage = critical, digitalSignature, keyEncipherment, keyCertSign
 extendedKeyUsage = serverAuth
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer
 
 [alt_names]
 IP.1 = ${IP_SAN}
