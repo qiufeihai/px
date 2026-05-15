@@ -1,19 +1,23 @@
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use px_proto::{ClientConfig, ConnectResponse, StatusCode, TargetAddr};
+use socket2::{SockRef, TcpKeepalive};
 use tokio::io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 
-use crate::upstream;
+use crate::upstream::UpstreamConnector;
 
 pub async fn handle_client(
     mut inbound: TcpStream,
     _peer_addr: SocketAddr,
     config: ClientConfig,
+    upstream: Arc<UpstreamConnector>,
 ) -> Result<()> {
+    apply_socket_options(&inbound)?;
     handshake(&mut inbound)
         .await
         .context("socks5 handshake failed")?;
@@ -22,7 +26,7 @@ pub async fn handle_client(
         .context("socks5 request parse failed")?;
 
     let timeout_ms = Duration::from_millis(config.connect_timeout_ms);
-    let mut upstream = tokio::time::timeout(timeout_ms, upstream::connect(&config, &request))
+    let mut upstream = tokio::time::timeout(timeout_ms, upstream.connect(&request))
         .await
         .context("upstream timeout")?
         .context("upstream connect failed")?;
@@ -44,7 +48,6 @@ pub async fn handle_client(
     inbound
         .write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
         .await?;
-    inbound.flush().await?;
 
     relay(&mut inbound, &mut upstream).await?;
     Ok(())
@@ -72,7 +75,6 @@ async fn handshake(stream: &mut TcpStream) -> Result<()> {
         return Err(anyhow!("client does not support no-auth socks5"));
     }
     stream.write_all(&[0x05, 0x00]).await?;
-    stream.flush().await?;
     Ok(())
 }
 
@@ -143,5 +145,13 @@ async fn read_request(stream: &mut TcpStream) -> Result<px_proto::ConnectRequest
 
 async fn relay(inbound: &mut TcpStream, upstream: &mut TlsStream<TcpStream>) -> Result<()> {
     copy_bidirectional(inbound, upstream).await?;
+    Ok(())
+}
+
+fn apply_socket_options(stream: &TcpStream) -> Result<()> {
+    stream.set_nodelay(true)?;
+    let sock = SockRef::from(stream);
+    let keepalive = TcpKeepalive::new().with_time(Duration::from_secs(30));
+    sock.set_tcp_keepalive(&keepalive)?;
     Ok(())
 }

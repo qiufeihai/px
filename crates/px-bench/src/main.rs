@@ -18,7 +18,11 @@ async fn main() -> Result<()> {
     let proxied = benchmark_socks(&socks_addr, &target, iterations).await?;
 
     println!("direct_avg_ms={:.2}", avg_ms(&direct));
+    println!("direct_p95_ms={:.2}", percentile_ms(&direct, 95));
+    println!("direct_p99_ms={:.2}", percentile_ms(&direct, 99));
     println!("socks_avg_ms={:.2}", avg_ms(&proxied));
+    println!("socks_p95_ms={:.2}", percentile_ms(&proxied, 95));
+    println!("socks_p99_ms={:.2}", percentile_ms(&proxied, 99));
     println!("delta_ms={:.2}", avg_ms(&proxied) - avg_ms(&direct));
     Ok(())
 }
@@ -93,4 +97,14 @@ fn avg_ms(samples: &[Duration]) -> f64 {
     }
     let total: f64 = samples.iter().map(|s| s.as_secs_f64() * 1000.0).sum();
     total / samples.len() as f64
+}
+
+fn percentile_ms(samples: &[Duration], percentile: usize) -> f64 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let mut values = samples.iter().map(|s| s.as_secs_f64() * 1000.0).collect::<Vec<_>>();
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let rank = ((values.len() - 1) * percentile) / 100;
+    values[rank]
 }

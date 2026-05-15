@@ -42,13 +42,14 @@ pub struct ClientRuntime {
 
 impl ClientRuntime {
     pub async fn start(config: ClientConfig, logger: Option<LogCallback>) -> Result<Self> {
+        let upstream = Arc::new(upstream::UpstreamConnector::new(&config)?);
         let listener = TcpListener::bind(&config.local_socks_addr)
             .await
             .with_context(|| format!("failed to bind {}", config.local_socks_addr))?;
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let logger = RuntimeLogger::new(logger);
-        let task = tokio::spawn(run_loop(listener, config, logger, shutdown_rx));
+        let task = tokio::spawn(run_loop(listener, config, upstream, logger, shutdown_rx));
 
         Ok(Self {
             shutdown_tx: Some(shutdown_tx),
@@ -77,6 +78,7 @@ impl ClientRuntime {
 async fn run_loop(
     listener: TcpListener,
     config: ClientConfig,
+    upstream: Arc<upstream::UpstreamConnector>,
     logger: RuntimeLogger,
     mut shutdown_rx: watch::Receiver<bool>,
 ) {
@@ -91,9 +93,10 @@ async fn run_loop(
                 match result {
                     Ok((stream, peer_addr)) => {
                         let config = config.clone();
+                        let upstream = upstream.clone();
                         let logger = logger.clone();
                         tokio::spawn(async move {
-                            if let Err(error) = socks5::handle_client(stream, peer_addr, config).await {
+                            if let Err(error) = socks5::handle_client(stream, peer_addr, config, upstream).await {
                                 let message = format!(
                                     "客户端会话失败，来源 {peer_addr}: {}",
                                     format_error_chain(&error)

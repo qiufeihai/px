@@ -19,34 +19,45 @@ use tokio::time::timeout;
 use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector;
 
-pub async fn connect(
-    config: &ClientConfig,
-    request: &ConnectRequest,
-) -> Result<TlsStream<TcpStream>> {
-    let server_addr: SocketAddr = config
-        .server_addr
-        .parse()
-        .context("server_addr must be IP:port")?;
-    let tcp = timeout(
-        Duration::from_millis(config.connect_timeout_ms),
-        TcpStream::connect(server_addr),
-    )
-    .await
-    .context("tcp connect timeout")??;
-    apply_socket_options(&tcp)?;
+#[derive(Clone)]
+pub struct UpstreamConnector {
+    server_addr: SocketAddr,
+    connect_timeout: Duration,
+    tls_connector: TlsConnector,
+}
 
-    let tls_config = build_tls_config(&config.server_cert_path)?;
-    let connector = TlsConnector::from(Arc::new(tls_config));
-    let server_name = ServerName::IpAddress(match server_addr.ip() {
-        IpAddr::V4(ip) => ip.into(),
-        IpAddr::V6(ip) => ip.into(),
-    });
-    let mut tls_stream = connector
-        .connect(server_name, tcp)
-        .await
-        .context("tls connect failed")?;
-    request.write_to(&mut tls_stream).await?;
-    Ok(tls_stream)
+impl UpstreamConnector {
+    pub fn new(config: &ClientConfig) -> Result<Self> {
+        let server_addr: SocketAddr = config
+            .server_addr
+            .parse()
+            .context("server_addr must be IP:port")?;
+        let tls_config = build_tls_config(&config.server_cert_path)?;
+        Ok(Self {
+            server_addr,
+            connect_timeout: Duration::from_millis(config.connect_timeout_ms),
+            tls_connector: TlsConnector::from(Arc::new(tls_config)),
+        })
+    }
+
+    pub async fn connect(&self, request: &ConnectRequest) -> Result<TlsStream<TcpStream>> {
+        let tcp = timeout(self.connect_timeout, TcpStream::connect(self.server_addr))
+            .await
+            .context("tcp connect timeout")??;
+        apply_socket_options(&tcp)?;
+
+        let server_name = ServerName::IpAddress(match self.server_addr.ip() {
+            IpAddr::V4(ip) => ip.into(),
+            IpAddr::V6(ip) => ip.into(),
+        });
+        let mut tls_stream = self
+            .tls_connector
+            .connect(server_name, tcp)
+            .await
+            .context("tls connect failed")?;
+        request.write_to(&mut tls_stream).await?;
+        Ok(tls_stream)
+    }
 }
 
 fn build_tls_config(path: &str) -> Result<RustlsClientConfig> {
