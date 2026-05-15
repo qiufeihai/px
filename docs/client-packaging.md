@@ -52,6 +52,7 @@ npm run tauri build -- --bundles app
 - 客户端仍需单独下载服务端生成的 `server-cert.pem`
 - Release 会按固定版本自动拉取 `tun2socks`；Windows 还会自动拉取 `wintun.dll`
 - 客户端首次使用前仍需按实际 VPS 地址生成自己的 `client.toml`
+- Actions 页面下载的 artifact 现在直接是目录内容，只需解压一次；正式 Release 资产仍是最终的 `zip` / `tar.gz`
 
 ## 3. 运行时目录约定
 

@@ -35,12 +35,10 @@ jobs:
             artifact_suffix: macos
             tauri_bundles: app
             bundle_dir: target/release/bundle/macos
-            archive_ext: tar.gz
           - os: windows-latest
             artifact_suffix: windows
             tauri_bundles: none
             bundle_dir: ""
-            archive_ext: zip
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -157,22 +155,10 @@ jobs:
             fi
           fi
 
-      - name: Archive artifacts (macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          tar -czf release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}.tar.gz -C release px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}
-
-      - name: Archive artifacts (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Compress-Archive -Path "release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}\*" -DestinationPath "release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}.zip" -Force
-
       - uses: actions/upload-artifact@v4
         with:
           name: px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}
-          path: release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}.${{ matrix.archive_ext }}
+          path: release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}
 
   publish-release:
     needs:
@@ -186,10 +172,24 @@ jobs:
         with:
           path: artifacts
 
+      - name: Archive release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd artifacts
+          for dir in */; do
+            base="${dir%/}"
+            if [[ "$base" == *-macos ]]; then
+              tar -czf "${base}.tar.gz" "$base"
+            elif [[ "$base" == *-windows ]]; then
+              zip -qr "${base}.zip" "$base"
+            fi
+          done
+
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.resolve-tag.outputs.tag }}
           files: |
-            artifacts/**/*.tar.gz
-            artifacts/**/*.zip
+            artifacts/*.tar.gz
+            artifacts/*.zip
           generate_release_notes: true
