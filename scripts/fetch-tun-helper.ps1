@@ -47,7 +47,13 @@ try {
   $wintunUrl = "https://www.wintun.net/builds/wintun-$WintunVersion.zip"
   Invoke-DownloadWithFallback -AssetName "wintun-$WintunVersion.zip" -UpstreamUrl $wintunUrl -OutFile $wintunZip
   Expand-Archive -Path $wintunZip -DestinationPath (Join-Path $tmpDir "wintun") -Force
-  Copy-Item (Join-Path $tmpDir "wintun\amd64\wintun.dll") (Join-Path $BinDir "wintun.dll") -Force
+  $wintunDll = Get-ChildItem -Path (Join-Path $tmpDir "wintun") -Recurse -Filter "wintun.dll" |
+    Where-Object { $_.FullName -match '[\\/]amd64[\\/]' } |
+    Select-Object -First 1
+  if (-not $wintunDll) {
+    throw "wintun.dll not found under amd64 in archive"
+  }
+  Copy-Item $wintunDll.FullName (Join-Path $BinDir "wintun.dll") -Force
   Write-Host "downloaded: $(Join-Path $BinDir 'wintun.dll')"
 
   Write-Host "cache release: $CacheReleaseUrl"
