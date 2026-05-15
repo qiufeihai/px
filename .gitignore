@@ -7,4 +7,6 @@ target/
 apps/tauri-ui/node_modules/
 .DS_Store
 apps/tauri-ui/src-tauri/target/
+apps/tauri-ui/.px-dev-runtime/
+apps/tauri-ui/src-tauri/.px-dev-runtime/
 bin/

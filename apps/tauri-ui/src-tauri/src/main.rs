@@ -420,7 +420,16 @@ fn client_config_path() -> Result<PathBuf> {
 }
 
 fn runtime_dir() -> Result<PathBuf> {
-    Ok(std::env::current_dir()?)
+    let cwd = std::env::current_dir()?;
+    if cfg!(debug_assertions) {
+        let base_dir = if cwd.file_name().and_then(|name| name.to_str()) == Some("src-tauri") {
+            cwd.parent().unwrap_or(&cwd)
+        } else {
+            &cwd
+        };
+        return Ok(base_dir.join(".px-dev-runtime"));
+    }
+    Ok(cwd)
 }
 
 fn validate_client_start(runtime_dir: &Path, config_path: &Path) -> Result<ClientConfig, String> {

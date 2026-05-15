@@ -19,6 +19,7 @@ npm run tauri build -- --bundles app
 - GUI 不承载代理数据面，只负责配置和运行时控制
 - 真正转发流量的是共享 runtime
 - TUN 只通过外部 helper 接到本地 SOCKS5，不进入 runtime 热路径
+- 开发模式下，GUI 会把配置、证书、helper 和日志写到 `apps/tauri-ui/.px-dev-runtime/`，避免 `tauri dev` 因源码目录文件变化而重编译
 - macOS 本地验证建议直接打 `.app`，避免额外 `dmg` 打包失败干扰 GUI 联调
 - Windows 发布包直接发便携目录 `zip`，不依赖 `.msi`
 

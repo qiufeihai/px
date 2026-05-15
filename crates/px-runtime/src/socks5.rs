@@ -14,23 +14,32 @@ pub async fn handle_client(
     _peer_addr: SocketAddr,
     config: ClientConfig,
 ) -> Result<()> {
-    handshake(&mut inbound).await?;
-    let request = read_request(&mut inbound).await?;
+    handshake(&mut inbound)
+        .await
+        .context("socks5 handshake failed")?;
+    let request = read_request(&mut inbound)
+        .await
+        .context("socks5 request parse failed")?;
 
     let timeout_ms = Duration::from_millis(config.connect_timeout_ms);
     let mut upstream = tokio::time::timeout(timeout_ms, upstream::connect(&config, &request))
         .await
-        .context("upstream timeout")??;
+        .context("upstream timeout")?
+        .context("upstream connect failed")?;
 
-    ConnectResponse::read_from(&mut upstream)
+    let response = ConnectResponse::read_from(&mut upstream)
         .await
-        .and_then(|response| match response.status {
-            StatusCode::Ok => Ok(response),
-            status => Err(std::io::Error::new(
+        .context("failed to read upstream connect response")?;
+    match response.status {
+        StatusCode::Ok => {}
+        status => {
+            return Err(std::io::Error::new(
                 std::io::ErrorKind::ConnectionRefused,
                 format!("upstream refused with status {:?}", status),
-            )),
-        })?;
+            )
+            .into());
+        }
+    }
 
     inbound
         .write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
@@ -42,13 +51,22 @@ pub async fn handle_client(
 }
 
 async fn handshake(stream: &mut TcpStream) -> Result<()> {
-    let version = stream.read_u8().await?;
+    let version = stream
+        .read_u8()
+        .await
+        .context("failed to read socks5 handshake version")?;
     if version != 0x05 {
         return Err(anyhow!("unsupported socks version: {version}"));
     }
-    let methods_len = stream.read_u8().await? as usize;
+    let methods_len = stream
+        .read_u8()
+        .await
+        .context("failed to read socks5 auth methods length")? as usize;
     let mut methods = vec![0_u8; methods_len];
-    stream.read_exact(&mut methods).await?;
+    stream
+        .read_exact(&mut methods)
+        .await
+        .context("failed to read socks5 auth methods")?;
     if !methods.contains(&0x00) {
         stream.write_all(&[0x05, 0xff]).await?;
         return Err(anyhow!("client does not support no-auth socks5"));
@@ -59,40 +77,67 @@ async fn handshake(stream: &mut TcpStream) -> Result<()> {
 }
 
 async fn read_request(stream: &mut TcpStream) -> Result<px_proto::ConnectRequest> {
-    let version = stream.read_u8().await?;
+    let version = stream
+        .read_u8()
+        .await
+        .context("failed to read socks5 request version")?;
     if version != 0x05 {
         return Err(anyhow!("invalid request socks version: {version}"));
     }
-    let cmd = stream.read_u8().await?;
+    let cmd = stream
+        .read_u8()
+        .await
+        .context("failed to read socks5 request command")?;
     if cmd != 0x01 {
         stream
             .write_all(&[0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
             .await?;
         return Err(anyhow!("only CONNECT is supported"));
     }
-    let _reserved = stream.read_u8().await?;
-    let addr_type = stream.read_u8().await?;
+    let _reserved = stream
+        .read_u8()
+        .await
+        .context("failed to read socks5 reserved byte")?;
+    let addr_type = stream
+        .read_u8()
+        .await
+        .context("failed to read socks5 address type")?;
     let target = match addr_type {
         0x01 => {
             let mut buf = [0_u8; 4];
-            stream.read_exact(&mut buf).await?;
+            stream
+                .read_exact(&mut buf)
+                .await
+                .context("failed to read ipv4 target address")?;
             TargetAddr::Ip(IpAddr::from(buf))
         }
         0x03 => {
-            let len = stream.read_u8().await? as usize;
+            let len = stream
+                .read_u8()
+                .await
+                .context("failed to read domain length")? as usize;
             let mut buf = vec![0_u8; len];
-            stream.read_exact(&mut buf).await?;
+            stream
+                .read_exact(&mut buf)
+                .await
+                .context("failed to read domain target address")?;
             let domain = String::from_utf8(buf)?;
             TargetAddr::Domain(domain)
         }
         0x04 => {
             let mut buf = [0_u8; 16];
-            stream.read_exact(&mut buf).await?;
+            stream
+                .read_exact(&mut buf)
+                .await
+                .context("failed to read ipv6 target address")?;
             TargetAddr::Ip(IpAddr::from(buf))
         }
         _ => return Err(anyhow!("unsupported address type: {addr_type}")),
     };
-    let port = stream.read_u16().await?;
+    let port = stream
+        .read_u16()
+        .await
+        .context("failed to read target port")?;
     Ok(px_proto::ConnectRequest { target, port })
 }
 
