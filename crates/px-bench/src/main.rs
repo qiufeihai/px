@@ -8,7 +8,7 @@ use tokio::time::timeout;
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    let socks_addr = get_flag(&args, "--socks").unwrap_or_else(|| "127.0.0.1:1080".to_string());
+    let socks_addr = get_flag(&args, "--socks").unwrap_or_else(|| "127.0.0.1:7777".to_string());
     let target = get_flag(&args, "--target").unwrap_or_else(|| "example.com:80".to_string());
     let iterations = get_flag(&args, "--iterations")
         .unwrap_or_else(|| "5".to_string())

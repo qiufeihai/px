@@ -1,4 +1,4 @@
-listen_addr = "0.0.0.0:7443"
+listen_addr = "0.0.0.0:6666"
 tls_cert_path = "config/server-cert.pem"
 tls_key_path = "config/server-key.pem"
 connect_timeout_ms = 5000

@@ -914,9 +914,9 @@ fn ensure_default_config() {
 
 fn default_client_config() -> ClientConfig {
     ClientConfig {
-        server_addr: "127.0.0.1:7443".to_string(),
+        server_addr: "127.0.0.1:6666".to_string(),
         server_cert_path: "config/server-cert.pem".to_string(),
-        local_socks_addr: "127.0.0.1:1080".to_string(),
+        local_socks_addr: "127.0.0.1:7777".to_string(),
         connect_timeout_ms: 5000,
         log_level: "info".to_string(),
         tun: TunConfig::default(),

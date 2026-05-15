@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SOCKS_ADDR="${SOCKS_ADDR:-127.0.0.1:1080}"
+SOCKS_ADDR="${SOCKS_ADDR:-127.0.0.1:7777}"
 TARGET_URL="${TARGET_URL:-https://example.com}"
 MAX_TIME="${MAX_TIME:-10}"
 

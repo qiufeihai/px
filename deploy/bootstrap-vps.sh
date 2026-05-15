@@ -52,7 +52,7 @@ cp "$REPO_DIR/deploy/systemd/px-server.service" "$PREFIX/systemd/px-server.servi
 
 if [[ -f "$CONFIG_SRC" ]]; then
   cat > "$CONFIG_DEST" <<EOF
-listen_addr = "0.0.0.0:7443"
+listen_addr = "0.0.0.0:6666"
 tls_cert_path = "$PREFIX/config/server-cert.pem"
 tls_key_path = "$PREFIX/config/server-key.pem"
 connect_timeout_ms = 5000

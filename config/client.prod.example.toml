@@ -1,6 +1,6 @@
-server_addr = "YOUR_SERVER_IP:7443"
+server_addr = "YOUR_SERVER_IP:6666"
 server_cert_path = "/ABSOLUTE/PATH/TO/server-cert.pem"
-local_socks_addr = "127.0.0.1:1080"
+local_socks_addr = "127.0.0.1:7777"
 connect_timeout_ms = 5000
 log_level = "info"
 

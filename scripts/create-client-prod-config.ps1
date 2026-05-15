@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory = $true)][string]$ServerAddr,
   [string]$ServerCertPath = "config/server-cert.pem",
-  [string]$LocalSocksAddr = "127.0.0.1:1080",
+  [string]$LocalSocksAddr = "127.0.0.1:7777",
   [int]$ConnectTimeoutMs = 5000,
   [string]$LogLevel = "info",
   [string]$OutPath = (Join-Path (Get-Location) "config/client.toml")

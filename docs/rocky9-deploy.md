@@ -43,7 +43,7 @@ sudo journalctl -u px-server -f
 如果 Rocky9 开启了 `firewalld`，记得放行端口：
 
 ```bash
-sudo firewall-cmd --permanent --add-port=7443/tcp
+sudo firewall-cmd --permanent --add-port=6666/tcp
 sudo firewall-cmd --reload
 ```
 
@@ -60,7 +60,7 @@ VPS_HOST=你的VPS公网IP scripts/fetch-server-cert.sh
 
 ```bash
 cd /Users/qiufeihai/workspace/px
-SERVER_ADDR=你的VPS公网IP:7443 \
+SERVER_ADDR=你的VPS公网IP:6666 \
 SERVER_CERT_PATH=/绝对路径/server-cert.pem \
 scripts/create-client-prod-config.sh
 ```
@@ -69,7 +69,7 @@ Windows PowerShell：
 
 ```powershell
 .\scripts\fetch-server-cert.ps1 -VpsHost 你的VPS公网IP
-.\scripts\create-client-prod-config.ps1 -ServerAddr "你的VPS公网IP:7443"
+.\scripts\create-client-prod-config.ps1 -ServerAddr "你的VPS公网IP:6666"
 ```
 
 关键点：

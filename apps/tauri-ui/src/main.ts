@@ -64,7 +64,7 @@ app.innerHTML = `
       <div class="grid">
         <label>
           <span>服务端地址</span>
-        <input id="server_addr" placeholder="1.2.3.4:7443" />
+        <input id="server_addr" placeholder="1.2.3.4:6666" />
         </label>
         <label>
           <span>证书路径</span>
@@ -72,7 +72,7 @@ app.innerHTML = `
         </label>
         <label>
           <span>本地 SOCKS5</span>
-        <input id="local_socks_addr" placeholder="127.0.0.1:1080" />
+        <input id="local_socks_addr" placeholder="127.0.0.1:7777" />
         </label>
         <label>
           <span>连接超时 (ms)</span>

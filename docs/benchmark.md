@@ -10,7 +10,7 @@
 运行：
 
 ```bash
-cargo run -p px-bench -- --socks 127.0.0.1:1080 --target example.com:80 --iterations 10
+cargo run -p px-bench -- --socks 127.0.0.1:7777 --target example.com:80 --iterations 10
 ```
 
 输出：
