@@ -67,10 +67,6 @@ app.innerHTML = `
         <input id="server_addr" placeholder="1.2.3.4:6666" />
         </label>
         <label>
-          <span>证书路径</span>
-        <input id="server_cert_path" placeholder="config/server-cert.pem" />
-        </label>
-        <label>
           <span>本地 SOCKS5</span>
         <input id="local_socks_addr" placeholder="127.0.0.1:7777" />
         </label>
@@ -166,7 +162,6 @@ app.innerHTML = `
 
 const fields = {
   server_addr: document.querySelector<HTMLInputElement>('#server_addr')!,
-  server_cert_path: document.querySelector<HTMLInputElement>('#server_cert_path')!,
   local_socks_addr: document.querySelector<HTMLInputElement>('#local_socks_addr')!,
   connect_timeout_ms: document.querySelector<HTMLInputElement>('#connect_timeout_ms')!,
   log_level: document.querySelector<HTMLSelectElement>('#log_level')!,
@@ -210,7 +205,6 @@ const LOG_POLL_INTERVAL_MS = 1000
 
 function setConfig(config: ClientConfig) {
   fields.server_addr.value = config.server_addr
-  fields.server_cert_path.value = config.server_cert_path
   fields.local_socks_addr.value = config.local_socks_addr
   fields.connect_timeout_ms.value = String(config.connect_timeout_ms)
   fields.log_level.value = config.log_level
@@ -225,7 +219,7 @@ function setConfig(config: ClientConfig) {
 function getConfig(): ClientConfig {
   return {
     server_addr: fields.server_addr.value.trim(),
-    server_cert_path: fields.server_cert_path.value.trim(),
+    server_cert_path: 'config/server-cert.pem',
     local_socks_addr: fields.local_socks_addr.value.trim(),
     connect_timeout_ms: Number(fields.connect_timeout_ms.value || '5000'),
     log_level: fields.log_level.value.trim() || 'info',
