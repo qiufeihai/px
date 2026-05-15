@@ -28,7 +28,8 @@ sudo SERVER_IP=你的VPS公网IP ./deploy/bootstrap-vps.sh
 
 说明：
 
-- 默认生成的自签证书会带服务器 IP 的 `SAN` 和 `CA:TRUE`
+- 默认会在 `/opt/px/config/` 生成服务端证书和私钥
+- 生成入口是 `deploy/generate-vps-cert.sh`
 - 如果后续手动重签证书，必须整对替换 `server-cert.pem` 和 `server-key.pem`
 - 证书重签后，客户端也要重新导入新的 `server-cert.pem`，因为客户端会直接固定这张服务端证书
 
@@ -37,6 +38,14 @@ sudo SERVER_IP=你的VPS公网IP ./deploy/bootstrap-vps.sh
 ```bash
 cd /opt/px-src
 sudo ./deploy/update-vps.sh
+```
+
+如果只想单独重签生产证书：
+
+```bash
+cd /opt/px-src
+sudo SERVER_IP=你的VPS公网IP ./deploy/generate-vps-cert.sh
+sudo systemctl restart px
 ```
 
 ## 2. 检查服务端状态

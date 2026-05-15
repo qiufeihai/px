@@ -201,6 +201,12 @@ let currentRuntimeState: RuntimeState | null = null
 let currentRuntimePaths: RuntimePaths | null = null
 let currentTunState: TunState | null = null
 let downloadingTunHelper = false
+let statusPollTimer: number | null = null
+let statusPollInFlight = false
+let logPollTimer: number | null = null
+let logPollInFlight = false
+const STATUS_POLL_INTERVAL_MS = 1000
+const LOG_POLL_INTERVAL_MS = 1000
 
 function setConfig(config: ClientConfig) {
   fields.server_addr.value = config.server_addr
@@ -289,6 +295,8 @@ function renderState(state: RuntimeState) {
   startClientButton.classList.toggle('secondary', state.running)
   stopClientButton.classList.toggle('primary-action', state.running)
   stopClientButton.classList.toggle('secondary', !state.running)
+  updateStatusPolling()
+  updateLogPolling()
   renderDirtyState()
 }
 
@@ -301,6 +309,8 @@ function renderTunState(state: TunState) {
   downloadTunHelperButton.disabled = state.running || downloadingTunHelper
   startTunButton.disabled = !enabled || state.running
   stopTunButton.disabled = !state.running
+  updateStatusPolling()
+  updateLogPolling()
 }
 
 function renderLogs(logs: string) {
@@ -397,6 +407,68 @@ async function refreshLogs() {
   const logs = await invoke<string>('runtime_logs_command')
   renderLogs(logs)
   return logs
+}
+
+function shouldPollLogs() {
+  return Boolean(currentRuntimeState?.running || currentTunState?.running || downloadingTunHelper)
+}
+
+function shouldPollStatus() {
+  return Boolean(currentRuntimeState?.running || currentTunState?.running)
+}
+
+function startStatusPolling() {
+  if (statusPollTimer !== null) return
+  statusPollTimer = window.setInterval(async () => {
+    if (statusPollInFlight) return
+    statusPollInFlight = true
+    try {
+      await Promise.all([refreshState(), refreshTunState()])
+    } finally {
+      statusPollInFlight = false
+    }
+  }, STATUS_POLL_INTERVAL_MS)
+}
+
+function stopStatusPolling() {
+  if (statusPollTimer === null) return
+  window.clearInterval(statusPollTimer)
+  statusPollTimer = null
+}
+
+function updateStatusPolling() {
+  if (shouldPollStatus()) {
+    startStatusPolling()
+  } else {
+    stopStatusPolling()
+  }
+}
+
+function startLogPolling() {
+  if (logPollTimer !== null) return
+  logPollTimer = window.setInterval(async () => {
+    if (logPollInFlight) return
+    logPollInFlight = true
+    try {
+      await refreshLogs()
+    } finally {
+      logPollInFlight = false
+    }
+  }, LOG_POLL_INTERVAL_MS)
+}
+
+function stopLogPolling() {
+  if (logPollTimer === null) return
+  window.clearInterval(logPollTimer)
+  logPollTimer = null
+}
+
+function updateLogPolling() {
+  if (shouldPollLogs()) {
+    startLogPolling()
+  } else {
+    stopLogPolling()
+  }
 }
 
 async function saveConfig() {

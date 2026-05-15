@@ -39,12 +39,10 @@ cargo build --release -p px-server
 mkdir -p "$PREFIX/bin" "$PREFIX/config" "$PREFIX/systemd"
 
 if [[ "$SKIP_CERT_GEN" != "1" ]]; then
-  IP_SAN="$SERVER_IP" \
-  DNS_SAN="$SERVER_DNS" \
-  OUTPUT_DIR="$PREFIX/config" \
-  CERT_PATH="$PREFIX/config/server-cert.pem" \
-  KEY_PATH="$PREFIX/config/server-key.pem" \
-  "$REPO_DIR/scripts/generate-cert.sh"
+  PREFIX="$PREFIX" \
+  SERVER_IP="$SERVER_IP" \
+  SERVER_DNS="$SERVER_DNS" \
+  "$REPO_DIR/deploy/generate-vps-cert.sh"
 fi
 
 cp "$REPO_DIR/target/release/px-server" "$PREFIX/bin/px-server"

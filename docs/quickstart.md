@@ -4,25 +4,20 @@
 
 怎样最快把本地链路跑通。
 
-## 1. 生成测试证书
+## 1. 生成开发证书
 
 在项目根目录执行：
 
 ```bash
-scripts/generate-cert.sh
+scripts/generate-dev-cert.sh
 ```
 
 默认会生成：
 
 - `config/server-cert.pem`
 - `config/server-key.pem`
-- 自签 TLS 证书会同时带 `SAN`、`CA:TRUE` 和 `serverAuth`，用于客户端按证书文件固定服务端身份
-
-如果后面要部署到公网 VPS，再用 VPS 公网 IP 重新生成一次：
-
-```bash
-IP_SAN=你的VPS公网IP DNS_SAN=localhost scripts/generate-cert.sh
-```
+- 自签 TLS 证书会带 `SAN` 和 `serverAuth`，用于客户端按证书文件固定服务端身份
+- 这组证书只用于本地联调，不用于 VPS 生产目录
 
 ## 2. 启动服务端
 

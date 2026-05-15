@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Internal helper for cert generation; prefer generate-dev-cert.sh or deploy/generate-vps-cert.sh.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -28,11 +29,8 @@ CN = px-server
 
 [v3_req]
 subjectAltName = @alt_names
-basicConstraints = critical, CA:TRUE
-keyUsage = critical, digitalSignature, keyEncipherment, keyCertSign
+keyUsage = critical, digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth
-subjectKeyIdentifier = hash
-authorityKeyIdentifier = keyid:always,issuer
 
 [alt_names]
 IP.1 = ${IP_SAN}

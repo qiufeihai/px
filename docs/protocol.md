@@ -13,7 +13,7 @@
 - 服务端证书：自签证书
 - 客户端信任方式：固定服务端证书文件
 - 当前默认要求：客户端会把 `server_cert_path` 指向的证书作为服务端叶子证书精确固定；服务端若换证书，客户端必须同步更新该文件
-- 配套生成脚本：`scripts/generate-cert.sh`
+- 配套生成脚本：开发联调用 `scripts/generate-dev-cert.sh`，VPS 用 `deploy/generate-vps-cert.sh`
 
 ## 首包格式
 

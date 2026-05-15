@@ -33,12 +33,12 @@ jobs:
         include:
           - os: macos-latest
             artifact_suffix: macos
-            tauri_build_args: "-- --bundles app"
+            tauri_bundles: app
             bundle_dir: target/release/bundle/macos
             archive_ext: tar.gz
           - os: windows-latest
             artifact_suffix: windows
-            tauri_build_args: "-- --no-bundle"
+            tauri_bundles: none
             bundle_dir: ""
             archive_ext: zip
     runs-on: ${{ matrix.os }}
@@ -52,6 +52,12 @@ jobs:
           cache-dependency-path: apps/tauri-ui/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify Rust toolchain
+        run: |
+          rustup default stable
+          rustc --version
+          cargo --version
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -67,10 +73,6 @@ jobs:
         working-directory: apps/tauri-ui
         run: npm ci
 
-      - name: Build tauri app
-        working-directory: apps/tauri-ui
-        run: npm run tauri build ${{ matrix.tauri_build_args }}
-
       - name: Fetch TUN helper (macOS/Linux)
         if: runner.os != 'Windows' && steps.tun-helper-cache.outputs.cache-hit != 'true'
         run: |
@@ -84,6 +86,10 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path bin -Force | Out-Null
           scripts/fetch-tun-helper.ps1
+
+      - name: Build tauri app
+        working-directory: apps/tauri-ui
+        run: npm run tauri -- build --bundles ${{ matrix.tauri_bundles }}
 
       - name: Verify TUN helper (macOS/Linux)
         if: runner.os != 'Windows'

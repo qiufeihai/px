@@ -50,7 +50,7 @@
 
 本地联调：
 
-1. 生成测试证书：`scripts/generate-cert.sh`
+1. 生成开发证书：`scripts/generate-dev-cert.sh`
 2. 启动服务端：`scripts/run-server.sh`
 3. 启动 GUI 开发模式：
 
@@ -71,9 +71,10 @@ npm run tauri dev
 推荐流程：
 
 1. VPS 上一键部署服务端
-2. 拉取服务端公钥证书
-3. 生成客户端配置
-4. 启动 `PX 个人代理`
+2. 如需单独重签生产证书：`deploy/generate-vps-cert.sh`
+3. 拉取服务端公钥证书
+4. 生成客户端配置
+5. 启动 `PX 个人代理`
 
 ## 目录说明
 

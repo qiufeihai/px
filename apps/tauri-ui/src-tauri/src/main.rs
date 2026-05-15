@@ -437,7 +437,7 @@ fn validate_client_start(runtime_dir: &Path, config_path: &Path) -> Result<Clien
         return Err("当前运行目录下缺少 config/client.toml，请先在界面保存配置。".to_string());
     }
 
-    let config = load_client_config(config_path).map_err(|_| "读取客户端配置失败，请重新保存配置。".to_string())?;
+    let mut config = load_client_config(config_path).map_err(|_| "读取客户端配置失败，请重新保存配置。".to_string())?;
     if config.server_addr.trim().is_empty() {
         return Err("服务端地址为空，请先填写服务端地址。".to_string());
     }
@@ -446,6 +446,7 @@ fn validate_client_start(runtime_dir: &Path, config_path: &Path) -> Result<Clien
     if !cert_path.exists() {
         return Err("未找到服务端证书，请先点击“导入证书”或检查证书路径。".to_string());
     }
+    config.server_cert_path = cert_path.display().to_string();
 
     Ok(config)
 }
