@@ -57,13 +57,12 @@ npm run tauri build -- --bundles app
 
 ```text
 px-personal-proxy-xxx/
+  PX 个人代理.app | PX 个人代理.exe
   bin/
     tun2socks | tun2socks.exe
     wintun.dll
   config/
     client.toml
-  gui/
-    PX 个人代理.app | PX 个人代理.exe
   scripts/
     create-client-prod-config.(sh|ps1)
     fetch-server-cert.(sh|ps1)
@@ -76,29 +75,29 @@ px-personal-proxy-xxx/
 - Tauri 控制面也从当前运行目录下的 `config/client.toml` 读取配置
 - Tauri 会启动共享 runtime
 - 若启用 TUN，GUI 会从当前运行目录下的 `bin/` 查找 helper
-- GUI 建议通过 `scripts/start-gui.(sh|ps1|bat)` 从发布目录启动
-- 因此最终使用时，建议在解压后的 `PX 个人代理` 发布目录内运行
+- 当前发布包支持直接双击根目录下的 `PX 个人代理.app` 或 `PX 个人代理.exe`
+- `scripts/start-gui.(sh|ps1|bat)` 仍可作为兼容辅助入口
 - 正式发布包默认已自带 `bin/` 下的 helper，一般不需要用户手动下载
 
 macOS 示例：
 
 ```bash
 cd px-personal-proxy-macos
-./scripts/start-gui.sh
+open "PX 个人代理.app"
 ```
 
 Windows PowerShell 示例：
 
 ```powershell
 Set-Location px-personal-proxy-windows
-.\scripts\start-gui.ps1
+.\PX 个人代理.exe
 ```
 
 ## 4. PX 个人代理分发最小集合
 
 - Tauri 打包产物
-- `gui/PX 个人代理` 或 `gui/PX 个人代理.exe`
-- Windows Release 为便携目录 `zip`，解压后直接运行 `gui/PX 个人代理.exe`
+- `PX 个人代理.app` 或 `PX 个人代理.exe`
+- Windows Release 为便携目录 `zip`，解压后可直接运行根目录下的 `PX 个人代理.exe`
 - `config/client.toml`
 - `scripts/create-client-prod-config.(sh|ps1)`
 - `scripts/fetch-server-cert.(sh|ps1)`
@@ -117,4 +116,4 @@ Set-Location px-personal-proxy-windows
 - 若本地开发目录缺少 helper，可执行 `scripts/fetch-tun-helper.sh` 或 `scripts/fetch-tun-helper.ps1`
 - `fetch-tun-helper` 现在默认优先使用当前仓库的缓存 Release：`tun-helper-cache-v1`，失败后再回退官方源
 - 正式发布后若用户手动删掉了 `bin/`，也可以直接在 GUI 里点击“下载 helper”
-- macOS/Windows GUI 建议优先通过启动脚本启动，以确保工作目录落在发布目录
+- GUI 现在会按可执行文件位置定位发布目录，双击根目录下的 `.app` 或 `.exe` 即可运行

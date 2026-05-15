@@ -420,8 +420,8 @@ fn client_config_path() -> Result<PathBuf> {
 }
 
 fn runtime_dir() -> Result<PathBuf> {
-    let cwd = std::env::current_dir()?;
     if cfg!(debug_assertions) {
+        let cwd = std::env::current_dir()?;
         let base_dir = if cwd.file_name().and_then(|name| name.to_str()) == Some("src-tauri") {
             cwd.parent().unwrap_or(&cwd)
         } else {
@@ -429,7 +429,47 @@ fn runtime_dir() -> Result<PathBuf> {
         };
         return Ok(base_dir.join(".px-dev-runtime"));
     }
-    Ok(cwd)
+    resolve_release_runtime_dir()
+}
+
+fn resolve_release_runtime_dir() -> Result<PathBuf> {
+    let exe = std::env::current_exe()?;
+    let exe_dir = exe
+        .parent()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "missing executable parent"))?;
+    let mut candidates = vec![exe_dir.to_path_buf()];
+
+    if let Some(parent) = exe_dir.parent() {
+        candidates.push(parent.to_path_buf());
+        if let Some(grand_parent) = parent.parent() {
+            candidates.push(grand_parent.to_path_buf());
+        }
+    }
+
+    if cfg!(target_os = "macos")
+        && exe_dir.file_name().and_then(|name| name.to_str()) == Some("MacOS")
+    {
+        if let Some(contents_dir) = exe_dir.parent() {
+            if let Some(app_dir) = contents_dir.parent() {
+                if let Some(bundle_parent) = app_dir.parent() {
+                    candidates.push(bundle_parent.to_path_buf());
+                    if let Some(root_parent) = bundle_parent.parent() {
+                        candidates.push(root_parent.to_path_buf());
+                    }
+                }
+            }
+        }
+    }
+
+    candidates.dedup();
+
+    if let Some(dir) = candidates.into_iter().find(|dir| {
+        dir.join("config").is_dir() || dir.join("bin").is_dir() || dir.join("scripts").is_dir()
+    }) {
+        return Ok(dir);
+    }
+
+    Ok(exe_dir.to_path_buf())
 }
 
 fn validate_client_start(runtime_dir: &Path, config_path: &Path) -> Result<ClientConfig, String> {

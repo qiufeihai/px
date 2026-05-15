@@ -108,7 +108,6 @@ jobs:
         run: |
           mkdir -p release/px-personal-proxy-${{ matrix.artifact_suffix }}/config
           mkdir -p release/px-personal-proxy-${{ matrix.artifact_suffix }}/bin
-          mkdir -p release/px-personal-proxy-${{ matrix.artifact_suffix }}/gui
           mkdir -p release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts
           cp config/client.prod.example.toml release/px-personal-proxy-${{ matrix.artifact_suffix }}/config/client.toml
           cp scripts/create-client-prod-config.sh release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/create-client-prod-config.sh
@@ -126,9 +125,9 @@ jobs:
             cp scripts/start-gui.ps1 release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/start-gui.ps1
             cp scripts/start-gui.bat release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/start-gui.bat
             if [[ -f "target/release/PX 个人代理.exe" ]]; then
-              cp "target/release/PX 个人代理.exe" "release/px-personal-proxy-${{ matrix.artifact_suffix }}/gui/PX 个人代理.exe"
+              cp "target/release/PX 个人代理.exe" "release/px-personal-proxy-${{ matrix.artifact_suffix }}/PX 个人代理.exe"
             elif [[ -f "target/release/tauri-ui.exe" ]]; then
-              cp target/release/tauri-ui.exe release/px-personal-proxy-${{ matrix.artifact_suffix }}/gui/tauri-ui.exe
+              cp target/release/tauri-ui.exe release/px-personal-proxy-${{ matrix.artifact_suffix }}/tauri-ui.exe
             fi
           else
             test -f "bin/tun2socks"
@@ -136,14 +135,14 @@ jobs:
           fi
 
           if [[ "${{ matrix.os }}" != windows-* ]] && [[ -f "target/release/PX 个人代理" ]]; then
-            cp "target/release/PX 个人代理" "release/px-personal-proxy-${{ matrix.artifact_suffix }}/gui/PX 个人代理"
+            cp "target/release/PX 个人代理" "release/px-personal-proxy-${{ matrix.artifact_suffix }}/PX 个人代理"
           elif [[ "${{ matrix.os }}" != windows-* ]] && [[ -f "target/release/tauri-ui" ]]; then
-            cp target/release/tauri-ui release/px-personal-proxy-${{ matrix.artifact_suffix }}/gui/tauri-ui
+            cp target/release/tauri-ui release/px-personal-proxy-${{ matrix.artifact_suffix }}/tauri-ui
           fi
 
           if [[ -d "${{ matrix.bundle_dir }}" ]]; then
             find "${{ matrix.bundle_dir }}" -mindepth 1 -maxdepth 1 -print0 | while IFS= read -r -d '' path; do
-              cp -R "$path" "release/px-personal-proxy-${{ matrix.artifact_suffix }}/gui/"
+              cp -R "$path" "release/px-personal-proxy-${{ matrix.artifact_suffix }}/"
             done
           fi
 

@@ -33,11 +33,6 @@ systemctl stop "${LEGACY_SERVICE_NAME}.service" || true
 install -m 0755 "$REPO_DIR/target/release/px-server" "$PREFIX/bin/px-server.new"
 mv -f "$PREFIX/bin/px-server.new" "$PREFIX/bin/px-server"
 
-if systemctl list-unit-files | grep -q '^px-server\.service'; then
-  rm -f /etc/systemd/system/px-server.service
-  systemctl daemon-reload
-fi
-
 if [[ -f "$CONFIG_DEST" ]]; then
   cp "$CONFIG_DEST" "${CONFIG_DEST}.bak.$(date +%Y%m%d%H%M%S)"
 fi
