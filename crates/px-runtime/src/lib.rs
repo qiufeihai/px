@@ -94,9 +94,16 @@ async fn run_loop(
                         let logger = logger.clone();
                         tokio::spawn(async move {
                             if let Err(error) = socks5::handle_client(stream, peer_addr, config).await {
-                                let message = format!("客户端会话失败，来源 {peer_addr}: {error}");
+                                let message = format!(
+                                    "客户端会话失败，来源 {peer_addr}: {}",
+                                    format_error_chain(&error)
+                                );
                                 logger.log(message.clone());
-                                error!(peer = %peer_addr, error = %error, "client session failed");
+                                error!(
+                                    peer = %peer_addr,
+                                    error = %format_error_chain(&error),
+                                    "client session failed"
+                                );
                             }
                         });
                     }
@@ -139,4 +146,12 @@ pub fn init_tracing(level: &str) {
     let filter = EnvFilter::try_new(level).unwrap_or_else(|_| EnvFilter::new("info"));
     let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
     info!(log_level = %level, "px-runtime tracing initialized");
+}
+
+fn format_error_chain(error: &anyhow::Error) -> String {
+    error
+        .chain()
+        .map(|cause| cause.to_string())
+        .collect::<Vec<_>>()
+        .join(": ")
 }

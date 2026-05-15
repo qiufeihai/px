@@ -36,7 +36,11 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             if let Err(error) = session::handle_client(stream, peer_addr, tls_acceptor, config).await
             {
-                error!(peer = %peer_addr, error = %error, "session failed");
+                error!(
+                    peer = %peer_addr,
+                    error = %format_error_chain(&error),
+                    "session failed"
+                );
             }
         });
     }
@@ -57,6 +61,14 @@ fn config_path_from_args() -> PathBuf {
 fn init_tracing(level: &str) {
     let filter = EnvFilter::try_new(level).unwrap_or_else(|_| EnvFilter::new("info"));
     let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+}
+
+fn format_error_chain(error: &anyhow::Error) -> String {
+    error
+        .chain()
+        .map(|cause| cause.to_string())
+        .collect::<Vec<_>>()
+        .join(": ")
 }
 
 fn build_tls_config(config: &ServerConfig) -> Result<RustlsServerConfig> {
