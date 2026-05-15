@@ -73,6 +73,7 @@ Windows PowerShell:
 补充说明：
 
 - 开发环境里可以继续用上述脚本下载 helper
+- 下载脚本默认优先使用当前仓库的缓存 Release：`tun-helper-cache-v1`，失败后再回退官方源
 - 正式发布包默认会自带 helper
 - 如果正式发布后的 `bin/` 被手动删掉，也可以直接在 GUI 里点击“下载 helper”
 

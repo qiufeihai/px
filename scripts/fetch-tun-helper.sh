@@ -5,6 +5,7 @@ RUN_DIR="$(pwd)"
 BIN_DIR="${BIN_DIR:-$RUN_DIR/bin}"
 TUN2SOCKS_VERSION="${TUN2SOCKS_VERSION:-v2.6.0}"
 WINTUN_VERSION="${WINTUN_VERSION:-0.14.1}"
+CACHE_RELEASE_URL="${CACHE_RELEASE_URL:-https://github.com/qiufeihai/px/releases/download/tun-helper-cache-v1}"
 
 OS="$(uname -s)"
 ARCH="$(uname -m)"
@@ -33,13 +34,28 @@ case "$OS" in
     ;;
 esac
 
-TUN2SOCKS_URL="https://github.com/xjasonlyu/tun2socks/releases/download/${TUN2SOCKS_VERSION}/${TUN2SOCKS_ASSET}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 mkdir -p "$BIN_DIR"
 
-curl -L "$TUN2SOCKS_URL" -o "$TMP_DIR/$TUN2SOCKS_ASSET"
+download_with_fallback() {
+  local asset_name="$1"
+  local cache_url="${CACHE_RELEASE_URL}/${asset_name}"
+  local upstream_url="$2"
+  local output_path="$3"
+
+  echo "trying cache: $cache_url"
+  if curl --fail --location --connect-timeout 8 --max-time 120 "$cache_url" -o "$output_path"; then
+    return 0
+  fi
+
+  echo "cache miss, fallback to upstream: $upstream_url"
+  curl --fail --location --connect-timeout 8 --max-time 120 "$upstream_url" -o "$output_path"
+}
+
+TUN2SOCKS_URL="https://github.com/xjasonlyu/tun2socks/releases/download/${TUN2SOCKS_VERSION}/${TUN2SOCKS_ASSET}"
+download_with_fallback "$TUN2SOCKS_ASSET" "$TUN2SOCKS_URL" "$TMP_DIR/$TUN2SOCKS_ASSET"
 unzip -o "$TMP_DIR/$TUN2SOCKS_ASSET" -d "$TMP_DIR/tun2socks"
 HELPER_SOURCE="$(find "$TMP_DIR/tun2socks" -maxdepth 1 -type f -name 'tun2socks*' | head -n 1)"
 if [[ -z "$HELPER_SOURCE" ]]; then
@@ -57,5 +73,6 @@ if [[ "$OS" == "Darwin" ]]; then
   echo "note: wintun.dll is not required on macOS"
 fi
 
+echo "cache release: $CACHE_RELEASE_URL"
 echo "tun2socks version: $TUN2SOCKS_VERSION"
 echo "wintun version (windows only): $WINTUN_VERSION"

@@ -113,5 +113,6 @@ Set-Location px-personal-proxy-windows
 - 若证书重签发，客户端也必须同步替换证书文件
 - Windows 下建议用 PowerShell 脚本生成配置和拉取证书
 - 若本地开发目录缺少 helper，可执行 `scripts/fetch-tun-helper.sh` 或 `scripts/fetch-tun-helper.ps1`
+- `fetch-tun-helper` 现在默认优先使用当前仓库的缓存 Release：`tun-helper-cache-v1`，失败后再回退官方源
 - 正式发布后若用户手动删掉了 `bin/`，也可以直接在 GUI 里点击“下载 helper”
 - macOS/Windows GUI 建议优先通过启动脚本启动，以确保工作目录落在发布目录
