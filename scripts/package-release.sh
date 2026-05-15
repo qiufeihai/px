@@ -16,7 +16,7 @@ cargo build --release -p px-server
 cp target/release/px-server "$OUT_DIR/bin/px-server"
 cp config/server.prod.example.toml "$OUT_DIR/config/server.toml"
 cp config/client.prod.example.toml "$OUT_DIR/config/client.toml"
-cp deploy/systemd/px-server.service "$OUT_DIR/systemd/px-server.service"
+cp deploy/systemd/px.service "$OUT_DIR/systemd/px.service"
 cp deploy/install-server.sh "$OUT_DIR/deploy/install-server.sh"
 cp scripts/create-client-prod-config.sh "$OUT_DIR/scripts/create-client-prod-config.sh"
 cp scripts/fetch-server-cert.sh "$OUT_DIR/scripts/fetch-server-cert.sh"

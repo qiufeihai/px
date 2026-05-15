@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PREFIX="${PREFIX:-/opt/px}"
-SERVICE_NAME="${SERVICE_NAME:-px-server}"
+SERVICE_NAME="${SERVICE_NAME:-px}"
 PX_USER="${PX_USER:-px}"
 PX_GROUP="${PX_GROUP:-px}"
 SERVER_IP="${SERVER_IP:-}"
@@ -48,7 +48,7 @@ if [[ "$SKIP_CERT_GEN" != "1" ]]; then
 fi
 
 cp "$REPO_DIR/target/release/px-server" "$PREFIX/bin/px-server"
-cp "$REPO_DIR/deploy/systemd/px-server.service" "$PREFIX/systemd/px-server.service"
+cp "$REPO_DIR/deploy/systemd/px.service" "$PREFIX/systemd/px.service"
 
 if [[ -f "$CONFIG_SRC" ]]; then
   cat > "$CONFIG_DEST" <<EOF
@@ -71,7 +71,7 @@ chmod 0755 "$PREFIX/bin/px-server"
 chmod 0644 "$CONFIG_DEST"
 chmod 0644 "$PREFIX/config/server-cert.pem"
 chmod 0600 "$PREFIX/config/server-key.pem"
-install -m 0644 "$PREFIX/systemd/px-server.service" "/etc/systemd/system/${SERVICE_NAME}.service"
+install -m 0644 "$PREFIX/systemd/px.service" "/etc/systemd/system/${SERVICE_NAME}.service"
 chown -R "$PX_USER:$PX_GROUP" "$PREFIX"
 
 systemctl daemon-reload

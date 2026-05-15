@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PREFIX="${PREFIX:-/opt/px}"
-SERVICE_NAME="${SERVICE_NAME:-px-server}"
+SERVICE_NAME="${SERVICE_NAME:-px}"
 CONFIG_DEST="${CONFIG_DEST:-$PREFIX/config/server.toml}"
 
 if [[ $EUID -ne 0 ]]; then
@@ -17,9 +17,18 @@ cd "$REPO_DIR"
 git pull --ff-only
 cargo build --release -p px-server
 
-systemctl stop "${SERVICE_NAME}.service"
+mkdir -p "$PREFIX/bin" "$(dirname "$CONFIG_DEST")" "$PREFIX/systemd"
+cp "$REPO_DIR/deploy/systemd/px.service" "$PREFIX/systemd/px.service"
+install -m 0644 "$PREFIX/systemd/px.service" "/etc/systemd/system/${SERVICE_NAME}.service"
 
-mkdir -p "$PREFIX/bin" "$(dirname "$CONFIG_DEST")"
+if systemctl list-unit-files | grep -q '^px-server\.service'; then
+  systemctl disable --now px-server.service || true
+  rm -f /etc/systemd/system/px-server.service
+fi
+
+systemctl daemon-reload
+systemctl stop "${SERVICE_NAME}.service" || true
+
 cp "$REPO_DIR/target/release/px-server" "$PREFIX/bin/px-server"
 chmod 0755 "$PREFIX/bin/px-server"
 

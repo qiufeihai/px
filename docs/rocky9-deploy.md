@@ -36,8 +36,8 @@ sudo ./deploy/update-vps.sh
 ## 2. 检查服务端状态
 
 ```bash
-sudo systemctl status px-server
-sudo journalctl -u px-server -f
+sudo systemctl status px
+sudo journalctl -u px -f
 ```
 
 如果 Rocky9 开启了 `firewalld`，记得放行端口：

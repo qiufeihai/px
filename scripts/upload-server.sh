@@ -18,7 +18,7 @@ ssh "$SSH_TARGET" "mkdir -p $REMOTE_BASE_DIR/bin $REMOTE_BASE_DIR/config $REMOTE
 
 scp "$BUNDLE_DIR/bin/px-server" "$SSH_TARGET:$REMOTE_BASE_DIR/bin/px-server"
 scp "$BUNDLE_DIR/config/server.toml" "$SSH_TARGET:$REMOTE_BASE_DIR/config/server.toml"
-scp "$BUNDLE_DIR/systemd/px-server.service" "$SSH_TARGET:$REMOTE_BASE_DIR/systemd/px-server.service"
+scp "$BUNDLE_DIR/systemd/px.service" "$SSH_TARGET:$REMOTE_BASE_DIR/systemd/px.service"
 scp "$BUNDLE_DIR/deploy/install-server.sh" "$SSH_TARGET:$REMOTE_BASE_DIR/deploy/install-server.sh"
 
 if [[ -f "$BUNDLE_DIR/config/server-cert.pem" ]]; then

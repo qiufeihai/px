@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PREFIX="${PREFIX:-/opt/px}"
-SERVICE_NAME="${SERVICE_NAME:-px-server}"
+SERVICE_NAME="${SERVICE_NAME:-px}"
 PX_USER="${PX_USER:-px}"
 PX_GROUP="${PX_GROUP:-px}"
 
@@ -21,7 +21,7 @@ chmod 0755 "$PREFIX/bin/px-server"
 chmod 0644 "$PREFIX/config/server.toml"
 chmod 0644 "$PREFIX/config/server-cert.pem"
 chmod 0600 "$PREFIX/config/server-key.pem"
-install -m 0644 "$PREFIX/systemd/px-server.service" "/etc/systemd/system/${SERVICE_NAME}.service"
+install -m 0644 "$PREFIX/systemd/px.service" "/etc/systemd/system/${SERVICE_NAME}.service"
 
 chown -R "$PX_USER:$PX_GROUP" "$PREFIX"
 
