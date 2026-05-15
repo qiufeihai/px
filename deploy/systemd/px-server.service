@@ -1,0 +1,22 @@
+[Unit]
+Description=PX Personal Proxy Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=px
+Group=px
+WorkingDirectory=/opt/px
+ExecStart=/opt/px/bin/px-server --config /opt/px/config/server.toml
+Restart=always
+RestartSec=2
+LimitNOFILE=1048576
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/px
+
+[Install]
+WantedBy=multi-user.target

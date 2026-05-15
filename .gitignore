@@ -1,0 +1,10 @@
+config/*.pem
+config/*.srl
+config/client.generated.toml
+dist/
+target/
+.trae/
+apps/tauri-ui/node_modules/
+.DS_Store
+apps/tauri-ui/src-tauri/target/
+bin/

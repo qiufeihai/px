@@ -1,0 +1,16 @@
+[package]
+name = "px-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+rustls.workspace = true
+rustls-pemfile.workspace = true
+socket2.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+px-proto = { path = "../px-proto" }

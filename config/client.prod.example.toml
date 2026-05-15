@@ -1,0 +1,13 @@
+server_addr = "YOUR_SERVER_IP:7443"
+server_cert_path = "/ABSOLUTE/PATH/TO/server-cert.pem"
+local_socks_addr = "127.0.0.1:1080"
+connect_timeout_ms = 5000
+log_level = "info"
+
+[tun]
+enabled = false
+helper_path = "bin/tun2socks"
+device_name = "utun233"
+primary_interface = ""
+ipv4_addr = "198.18.0.1"
+mtu = 1500

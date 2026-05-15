@@ -1,0 +1,98 @@
+# PX 快速开始
+
+这份文档只回答一件事：
+
+怎样最快把本地链路跑通。
+
+## 1. 生成测试证书
+
+在项目根目录执行：
+
+```bash
+scripts/generate-cert.sh
+```
+
+默认会生成：
+
+- `config/server-cert.pem`
+- `config/server-key.pem`
+
+如果后面要部署到公网 VPS，再用 VPS 公网 IP 重新生成一次：
+
+```bash
+IP_SAN=你的VPS公网IP DNS_SAN=localhost scripts/generate-cert.sh
+```
+
+## 2. 启动服务端
+
+```bash
+scripts/run-server.sh
+```
+
+默认读取 `config/server.toml`。
+
+## 3. 启动 PX 个人代理
+
+```bash
+cd apps/tauri-ui
+npm run tauri dev
+```
+
+启动后：
+
+- GUI 会读取当前运行目录下的 `config/client.toml`
+- GUI 会启动共享 runtime
+- GUI 会使用 `config/server-cert.pem` 连接服务端
+
+## 4. 做一次冒烟测试
+
+另开一个终端执行：
+
+```bash
+scripts/smoke-test.sh
+```
+
+默认会通过本地 SOCKS5 访问 `https://example.com`。
+
+## 5. 如需启用 TUN
+
+macOS / Linux:
+
+```bash
+scripts/fetch-tun-helper.sh
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\fetch-tun-helper.ps1
+```
+
+下载后会把 helper 放到当前运行目录下的 `bin/`。
+
+补充说明：
+
+- 开发环境里可以继续用上述脚本下载 helper
+- 正式发布包默认会自带 helper
+- 如果正式发布后的 `bin/` 被手动删掉，也可以直接在 GUI 里点击“下载 helper”
+
+## 结果判断
+
+如果一切正常，你应该能看到：
+
+- 服务端正常启动
+- GUI 能显示运行中
+- 冒烟测试通过
+
+## 额外说明
+
+- 正式客户端只有 GUI：`PX 个人代理`
+- 首版只支持 TCP，不支持 UDP
+- TUN 通过外部 helper 接到本地 SOCKS5，目前只做全局 TCP
+- 当前客户端按 `server_cert_path` 固定服务端证书文件
+- 本地建议先用 `127.0.0.1` 联调，跑通后再换成 Rocky9 VPS
+
+更多文档：
+
+- Rocky9 部署：[rocky9-deploy.md](file:///Users/qiufeihai/workspace/px/docs/rocky9-deploy.md)
+- GUI 打包：[client-packaging.md](file:///Users/qiufeihai/workspace/px/docs/client-packaging.md)

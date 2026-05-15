@@ -1,0 +1,144 @@
+name: px-personal-proxy-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag, e.g. v0.1.0
+        required: true
+        type: string
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  resolve-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.value }}
+    steps:
+      - id: tag
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            echo "value=${{ github.event.inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-client:
+    needs: resolve-tag
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact_suffix: macos
+            tauri_build_args: "-- --bundles app"
+            bundle_dir: target/release/bundle/macos
+          - os: windows-latest
+            artifact_suffix: windows
+            tauri_build_args: "-- --bundles msi"
+            bundle_dir: target/release/bundle/msi
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Fetch TUN helper (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: |
+          chmod +x scripts/fetch-tun-helper.sh
+          scripts/fetch-tun-helper.sh
+
+      - name: Fetch TUN helper (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: scripts/fetch-tun-helper.ps1
+
+      - name: Install frontend deps
+        working-directory: apps/tauri-ui
+        run: npm ci
+
+      - name: Build tauri bundle
+        working-directory: apps/tauri-ui
+        run: npm run tauri build ${{ matrix.tauri_build_args }}
+
+      - name: Package artifacts
+        shell: bash
+        run: |
+          mkdir -p release/px-personal-proxy-${{ matrix.artifact_suffix }}/config
+          mkdir -p release/px-personal-proxy-${{ matrix.artifact_suffix }}/bin
+          mkdir -p release/px-personal-proxy-${{ matrix.artifact_suffix }}/gui
+          mkdir -p release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts
+          cp config/client.prod.example.toml release/px-personal-proxy-${{ matrix.artifact_suffix }}/config/client.toml
+          cp scripts/create-client-prod-config.sh release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/create-client-prod-config.sh
+          cp scripts/fetch-server-cert.sh release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/fetch-server-cert.sh
+          cp scripts/fetch-tun-helper.sh release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/fetch-tun-helper.sh
+          cp scripts/start-gui.sh release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/start-gui.sh
+          if [[ "${{ matrix.os }}" == windows-* ]]; then
+            test -f "bin/tun2socks.exe"
+            test -f "bin/wintun.dll"
+            cp bin/tun2socks.exe release/px-personal-proxy-${{ matrix.artifact_suffix }}/bin/tun2socks.exe
+            cp bin/wintun.dll release/px-personal-proxy-${{ matrix.artifact_suffix }}/bin/wintun.dll
+            cp scripts/create-client-prod-config.ps1 release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/create-client-prod-config.ps1
+            cp scripts/fetch-server-cert.ps1 release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/fetch-server-cert.ps1
+            cp scripts/fetch-tun-helper.ps1 release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/fetch-tun-helper.ps1
+            cp scripts/start-gui.ps1 release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/start-gui.ps1
+            cp scripts/start-gui.bat release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/start-gui.bat
+            if [[ -f "target/release/PX 个人代理.exe" ]]; then
+              cp "target/release/PX 个人代理.exe" "release/px-personal-proxy-${{ matrix.artifact_suffix }}/gui/PX 个人代理.exe"
+            elif [[ -f "target/release/tauri-ui.exe" ]]; then
+              cp target/release/tauri-ui.exe release/px-personal-proxy-${{ matrix.artifact_suffix }}/gui/tauri-ui.exe
+            fi
+          else
+            test -f "bin/tun2socks"
+            cp bin/tun2socks release/px-personal-proxy-${{ matrix.artifact_suffix }}/bin/tun2socks
+          fi
+
+          if [[ "${{ matrix.os }}" != windows-* ]] && [[ -f "target/release/PX 个人代理" ]]; then
+            cp "target/release/PX 个人代理" "release/px-personal-proxy-${{ matrix.artifact_suffix }}/gui/PX 个人代理"
+          elif [[ "${{ matrix.os }}" != windows-* ]] && [[ -f "target/release/tauri-ui" ]]; then
+            cp target/release/tauri-ui release/px-personal-proxy-${{ matrix.artifact_suffix }}/gui/tauri-ui
+          fi
+
+          if [[ -d "${{ matrix.bundle_dir }}" ]]; then
+            find "${{ matrix.bundle_dir }}" -mindepth 1 -maxdepth 1 -print0 | while IFS= read -r -d '' path; do
+              cp -R "$path" "release/px-personal-proxy-${{ matrix.artifact_suffix }}/gui/"
+            done
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: px-personal-proxy-${{ matrix.artifact_suffix }}
+          path: release/px-personal-proxy-${{ matrix.artifact_suffix }}
+
+  publish-release:
+    needs:
+      - resolve-tag
+      - build-client
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Archive artifacts
+        run: |
+          cd artifacts
+          for dir in */; do
+            base="${dir%/}"
+            tar -czf "${base}.tar.gz" "$base"
+          done
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve-tag.outputs.tag }}
+          files: artifacts/*.tar.gz
+          generate_release_notes: true

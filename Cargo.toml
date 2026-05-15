@@ -1,0 +1,35 @@
+[workspace]
+members = [
+  "crates/px-proto",
+  "crates/px-runtime",
+  "crates/px-server",
+  "crates/px-bench",
+  "apps/tauri-ui/src-tauri",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+[workspace.dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+socket2 = "0.5"
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = "0.26"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+rustls = "0.23"
+rustls-pemfile = "2"
+tauri = { version = "1.8", features = ["dialog-open"] }
+tauri-build = { version = "1.5", features = [] }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
