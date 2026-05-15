@@ -20,7 +20,7 @@ npm run tauri build -- --bundles app
 - 真正转发流量的是共享 runtime
 - TUN 只通过外部 helper 接到本地 SOCKS5，不进入 runtime 热路径
 - macOS 本地验证建议直接打 `.app`，避免额外 `dmg` 打包失败干扰 GUI 联调
-- Windows 发布包建议打 `.msi`
+- Windows 发布包直接发便携目录 `zip`，不依赖 `.msi`
 
 ## 2. GitHub Actions 打包
 
@@ -37,7 +37,7 @@ npm run tauri build -- --bundles app
 
 - 在 macOS / Windows runner 上构建 `PX 个人代理`
 - macOS 构建 `.app`
-- Windows 构建 `.msi`
+- Windows 只编译 GUI `.exe`，再组装成便携目录 `zip`
 - 构建前自动下载固定版本的 TUN helper
 - 若 helper 下载失败或未进入发布目录，构建会直接失败
 - 把 `config/client.toml` 示例、辅助脚本、`bin/` helper 和 GUI bundle 一起归档
@@ -62,7 +62,7 @@ px-personal-proxy-xxx/
   config/
     client.toml
   gui/
-    PX 个人代理.app | PX 个人代理(.exe) | *.msi
+    PX 个人代理.app | PX 个人代理.exe
   scripts/
     create-client-prod-config.(sh|ps1)
     fetch-server-cert.(sh|ps1)
@@ -97,6 +97,7 @@ Set-Location px-personal-proxy-windows
 
 - Tauri 打包产物
 - `gui/PX 个人代理` 或 `gui/PX 个人代理.exe`
+- Windows Release 为便携目录 `zip`，解压后直接运行 `gui/PX 个人代理.exe`
 - `config/client.toml`
 - `scripts/create-client-prod-config.(sh|ps1)`
 - `scripts/fetch-server-cert.(sh|ps1)`

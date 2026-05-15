@@ -1,5 +1,13 @@
-server_addr = "127.0.0.1:6666"
+server_addr = "206.119.179.201:6666"
 server_cert_path = "config/server-cert.pem"
 local_socks_addr = "127.0.0.1:7777"
 connect_timeout_ms = 5000
 log_level = "info"
+
+[tun]
+enabled = false
+helper_path = "bin/tun2socks"
+device_name = "utun233"
+primary_interface = ""
+ipv4_addr = "198.18.0.1"
+mtu = 1500

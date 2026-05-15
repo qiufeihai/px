@@ -35,10 +35,12 @@ jobs:
             artifact_suffix: macos
             tauri_build_args: "-- --bundles app"
             bundle_dir: target/release/bundle/macos
+            archive_ext: tar.gz
           - os: windows-latest
             artifact_suffix: windows
-            tauri_build_args: "-- --bundles msi"
-            bundle_dir: target/release/bundle/msi
+            tauri_build_args: "-- --no-bundle"
+            bundle_dir: ""
+            archive_ext: zip
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -65,7 +67,7 @@ jobs:
         working-directory: apps/tauri-ui
         run: npm ci
 
-      - name: Build tauri bundle
+      - name: Build tauri app
         working-directory: apps/tauri-ui
         run: npm run tauri build ${{ matrix.tauri_build_args }}
 
@@ -139,12 +141,22 @@ jobs:
             done
           fi
 
+      - name: Archive artifacts (macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
           tar -czf release/px-personal-proxy-${{ matrix.artifact_suffix }}.tar.gz -C release px-personal-proxy-${{ matrix.artifact_suffix }}
+
+      - name: Archive artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "release/px-personal-proxy-${{ matrix.artifact_suffix }}\*" -DestinationPath "release/px-personal-proxy-${{ matrix.artifact_suffix }}.zip" -Force
 
       - uses: actions/upload-artifact@v4
         with:
           name: px-personal-proxy-${{ matrix.artifact_suffix }}
-          path: release/px-personal-proxy-${{ matrix.artifact_suffix }}.tar.gz
+          path: release/px-personal-proxy-${{ matrix.artifact_suffix }}.${{ matrix.archive_ext }}
 
   publish-release:
     needs:
@@ -161,5 +173,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.resolve-tag.outputs.tag }}
-          files: artifacts/**/*.tar.gz
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
           generate_release_notes: true
