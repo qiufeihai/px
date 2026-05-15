@@ -2,14 +2,14 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use px_proto::{ConnectResponse, StatusCode};
+use px_proto::{ConnectResponse, StatusCode, TargetAddr};
 use socket2::{SockRef, TcpKeepalive};
 use tokio::io::copy_bidirectional;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::target::connect_target;
 
@@ -24,6 +24,7 @@ pub async fn handle_client(
     let request = match px_proto::ConnectRequest::read_from(&mut tls_stream).await {
         Ok(request) => request,
         Err(error) => {
+            warn!(peer = %peer_addr, error = %error, "invalid connect request");
             let _ = ConnectResponse {
                 status: StatusCode::BadRequest,
                 reason: 0,
@@ -39,6 +40,12 @@ pub async fn handle_client(
     let mut target_stream = match timeout(timeout_ms, connect_target(&request)).await {
         Ok(Ok(stream)) => stream,
         Ok(Err(error)) => {
+            warn!(
+                peer = %peer_addr,
+                target = %format_target(&request),
+                error = %error,
+                "target connect failed"
+            );
             let _ = ConnectResponse {
                 status: StatusCode::TargetConnectFailed,
                 reason: 0,
@@ -48,6 +55,12 @@ pub async fn handle_client(
             return Err(error);
         }
         Err(_) => {
+            warn!(
+                peer = %peer_addr,
+                target = %format_target(&request),
+                timeout_ms = config.connect_timeout_ms,
+                "target connect timeout"
+            );
             let _ = ConnectResponse {
                 status: StatusCode::Timeout,
                 reason: 0,
@@ -82,4 +95,11 @@ fn apply_socket_options(stream: &TcpStream) -> Result<()> {
     let keepalive = TcpKeepalive::new().with_time(Duration::from_secs(30));
     sock.set_tcp_keepalive(&keepalive)?;
     Ok(())
+}
+
+fn format_target(request: &px_proto::ConnectRequest) -> String {
+    match &request.target {
+        TargetAddr::Ip(ip) => format!("{ip}:{}", request.port),
+        TargetAddr::Domain(domain) => format!("{domain}:{}", request.port),
+    }
 }

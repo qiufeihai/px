@@ -55,6 +55,16 @@ scripts/run-browser-bench.sh
 BROWSER_TARGETS="github.com:443 www.apple.com:443" ITERATIONS=20 scripts/run-browser-bench.sh
 ```
 
+默认会连续执行多轮：
+
+- `ROUNDS=3`
+
+例如：
+
+```bash
+ROUNDS=5 ITERATIONS=20 scripts/run-browser-bench.sh
+```
+
 输出：
 
 - `direct_avg_ms`：目标地址直连平均建连时延
@@ -72,8 +82,10 @@ BROWSER_TARGETS="github.com:443 www.apple.com:443" ITERATIONS=20 scripts/run-bro
 浏览器多域名脚本还会额外输出：
 
 - `success` / `fail`：成功与失败目标数量
+- `rounds`：实际汇总的轮数
 - `*_mean_ms`：跨多个目标的平均结果
 - `failed_targets`：失败目标列表，方便排除临时网络问题
+- `per_target_summary`：按目标汇总的均值，方便识别某个站点是否持续抖动
 
 ## 推荐后续补充
 
