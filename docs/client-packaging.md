@@ -59,7 +59,7 @@ npm run tauri build -- --bundles app
 
 ```text
 px-vX.Y.Z-xxx/
-  PX 个人代理.app | PX 个人代理.exe
+  px.app | px.exe
   bin/
     tun2socks | tun2socks.exe
     wintun.dll
@@ -80,31 +80,38 @@ px-vX.Y.Z-xxx/
 - Tauri 控制面也从当前运行目录下的 `config/client.toml` 读取配置
 - Tauri 会启动共享 runtime
 - 若启用 TUN，GUI 会从当前运行目录下的 `bin/` 查找 helper
-- 当前发布包支持直接双击根目录下的 `PX 个人代理.app` 或 `PX 个人代理.exe`
+- Windows 发布包支持直接双击根目录下的 `px.exe`
 - 正式发布包默认已自带 `bin/` 下的 helper，一般不需要用户手动下载
 
 macOS 示例：
 
 ```bash
 cd px-v0.1.0-macos
-open "PX 个人代理.app"
+./scripts/open-macos-app.sh
 ```
+
+说明：
+
+- macOS 下载包未签名/未公证时，右键打开也可能失败
+- `scripts/open-macos-app.sh` 会先对当前发布目录递归移除 `com.apple.quarantine`，再打开 `px.app`
+- 每个新下载版本首次使用时，建议先执行一次这个脚本
 
 Windows PowerShell 示例：
 
 ```powershell
 Set-Location px-v0.1.0-windows
-.\PX 个人代理.exe
+.\px.exe
 ```
 
 ## 4. PX 个人代理分发最小集合
 
 - Tauri 打包产物
-- `PX 个人代理.app` 或 `PX 个人代理.exe`
-- Windows Release 为便携目录 `zip`，解压后可直接运行根目录下的 `PX 个人代理.exe`
+- `px.app` 或 `px.exe`
+- Windows Release 为便携目录 `zip`，解压后可直接运行根目录下的 `px.exe`
 - `config/client.toml`
 - `scripts/create-client-prod-config.(sh|ps1)`
 - `scripts/fetch-tun-helper.(sh|ps1)`
+- macOS 发布包额外包含 `scripts/open-macos-app.sh`
 - 发布包默认包含 `bin/tun2socks` 或 `bin/tun2socks.exe`
 - Windows 发布包默认包含 `bin/wintun.dll`
 

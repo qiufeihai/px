@@ -34,10 +34,12 @@ if [[ "$BUILD_TAURI" == "1" ]]; then
     npm run tauri build -- --bundles "$TAURI_BUNDLES"
   )
 
-  if [[ -x "$ROOT_DIR/target/release/PX 个人代理" ]]; then
-    cp "$ROOT_DIR/target/release/PX 个人代理" "$OUT_DIR/PX 个人代理"
+  if [[ -x "$ROOT_DIR/target/release/px" ]]; then
+    cp "$ROOT_DIR/target/release/px" "$OUT_DIR/px"
+  elif [[ -x "$ROOT_DIR/target/release/PX 个人代理" ]]; then
+    cp "$ROOT_DIR/target/release/PX 个人代理" "$OUT_DIR/px"
   elif [[ -x "$ROOT_DIR/target/release/tauri-ui" ]]; then
-    cp "$ROOT_DIR/target/release/tauri-ui" "$OUT_DIR/tauri-ui"
+    cp "$ROOT_DIR/target/release/tauri-ui" "$OUT_DIR/px"
   fi
 
   if [[ -d "$ROOT_DIR/target/release/bundle/macos" ]]; then
