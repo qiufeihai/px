@@ -4,10 +4,15 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use px_proto::{ClientConfig, ConnectRequest};
-use rustls::pki_types::{CertificateDer, ServerName};
-use rustls::{ClientConfig as RustlsClientConfig, RootCertStore};
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::client::WebPkiServerVerifier;
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{
+    CertificateError, ClientConfig as RustlsClientConfig, DigitallySignedStruct, Error,
+    RootCertStore, SignatureScheme,
+};
 use socket2::{SockRef, TcpKeepalive};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
@@ -46,12 +51,10 @@ pub async fn connect(
 
 fn build_tls_config(path: &str) -> Result<RustlsClientConfig> {
     let certs = load_certs(path)?;
-    let mut roots = RootCertStore::empty();
-    for cert in certs {
-        roots.add(cert)?;
-    }
+    let verifier = PinnedServerCertVerifier::new(certs)?;
     Ok(RustlsClientConfig::builder()
-        .with_root_certificates(roots)
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(verifier))
         .with_no_client_auth())
 }
 
@@ -70,4 +73,73 @@ fn apply_socket_options(stream: &TcpStream) -> Result<()> {
     let keepalive = TcpKeepalive::new().with_time(Duration::from_secs(30));
     sock.set_tcp_keepalive(&keepalive)?;
     Ok(())
+}
+
+#[derive(Debug)]
+struct PinnedServerCertVerifier {
+    pinned_cert: CertificateDer<'static>,
+    delegate: Arc<WebPkiServerVerifier>,
+}
+
+impl PinnedServerCertVerifier {
+    fn new(mut certs: Vec<CertificateDer<'static>>) -> Result<Self> {
+        if certs.len() != 1 {
+            return Err(anyhow!(
+                "pinned cert file must contain exactly one certificate"
+            ));
+        }
+
+        let pinned_cert = certs.remove(0);
+        let mut roots = RootCertStore::empty();
+        roots.add(pinned_cert.clone())?;
+        let delegate = WebPkiServerVerifier::builder(Arc::new(roots))
+            .build()
+            .map_err(|error| anyhow!("failed to build pinned cert verifier: {error}"))?;
+
+        Ok(Self {
+            pinned_cert,
+            delegate,
+        })
+    }
+}
+
+impl ServerCertVerifier for PinnedServerCertVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> std::result::Result<ServerCertVerified, Error> {
+        if end_entity.as_ref() != self.pinned_cert.as_ref() {
+            return Err(Error::InvalidCertificate(
+                CertificateError::ApplicationVerificationFailure,
+            ));
+        }
+
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, Error> {
+        self.delegate.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, Error> {
+        self.delegate.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.delegate.supported_verify_schemes()
+    }
 }

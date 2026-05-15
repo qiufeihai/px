@@ -30,7 +30,7 @@ sudo SERVER_IP=你的VPS公网IP ./deploy/bootstrap-vps.sh
 
 - 默认生成的自签证书会带服务器 IP 的 `SAN` 和 `CA:TRUE`
 - 如果后续手动重签证书，必须整对替换 `server-cert.pem` 和 `server-key.pem`
-- 证书重签后，客户端也要重新导入新的 `server-cert.pem`
+- 证书重签后，客户端也要重新导入新的 `server-cert.pem`，因为客户端会直接固定这张服务端证书
 
 后续更新：
 
