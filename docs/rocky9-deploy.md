@@ -15,7 +15,7 @@
 ```bash
 git clone <你的仓库地址> /opt/px-src
 cd /opt/px-src
-sudo SERVER_IP=你的VPS公网IP ./deploy/bootstrap-vps.sh
+sudo SERVER_IP=你的VPS公网IP ./deploy/setup-vps.sh
 ```
 
 这一步会完成：
@@ -64,33 +64,27 @@ sudo firewall-cmd --reload
 
 ## 3. 准备客户端证书和配置
 
-在本地机器上，先拉取服务端公钥证书：
+在本地机器上，先从 VPS 手动拷贝服务端公钥证书：
 
 ```bash
 cd /Users/qiufeihai/workspace/px
-VPS_HOST=你的VPS公网IP scripts/fetch-server-cert.sh
+mkdir -p config
+scp root@你的VPS公网IP:/opt/px/config/server-cert.pem config/server-cert.pem
 ```
 
-再生成客户端配置：
+然后启动 GUI，在界面里填写客户端配置：
 
 ```bash
-cd /Users/qiufeihai/workspace/px
-SERVER_ADDR=你的VPS公网IP:6666 \
-SERVER_CERT_PATH=/绝对路径/server-cert.pem \
-scripts/create-client-prod-config.sh
-```
-
-Windows PowerShell：
-
-```powershell
-.\scripts\fetch-server-cert.ps1 -VpsHost 你的VPS公网IP
-.\scripts\create-client-prod-config.ps1 -ServerAddr "你的VPS公网IP:6666"
+打开 `PX 个人代理`，填写：
+- 服务端地址：`你的VPS公网IP:6666`
+- 本地 SOCKS5：默认 `127.0.0.1:7777`
+- 日志级别：默认 `info`
+- 再点击“导入证书”，选择刚拷下来的 `config/server-cert.pem`
 ```
 
 关键点：
 
 - `server_addr` 必须写成公网 IP:端口
-- `server_cert_path` 推荐写 `config/server-cert.pem`
 - `server-key.pem` 只能留在服务端
 - 当前客户端按证书文件固定服务端身份，不依赖公网 CA
 
@@ -115,8 +109,8 @@ npm run tauri build -- --bundles app
 ## 5. 推荐顺序
 
 1. VPS 上部署 `px-server`
-2. 本地拉取服务端证书
-3. 本地生成客户端配置
+2. 本地手动拷贝服务端证书
+3. 本地导入服务端证书并在 GUI 里填写配置
 4. 启动 `PX 个人代理`
 5. 验证链路是否正常
 

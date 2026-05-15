@@ -22,16 +22,15 @@ scripts/generate-dev-cert.sh
 ## 2. 启动服务端
 
 ```bash
-scripts/run-server.sh
+scripts/start-server-dev.sh
 ```
 
 默认读取 `config/server.toml`。
 
-## 3. 启动 PX 个人代理
+## 3. 启动 PX 个人代理 GUI 开发模式
 
 ```bash
-cd apps/tauri-ui
-npm run tauri dev
+scripts/start-gui-dev.sh
 ```
 
 启动后：

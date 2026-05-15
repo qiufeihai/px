@@ -1,4 +1,4 @@
-name: px-personal-proxy-release
+name: px-release
 
 on:
   workflow_dispatch:
@@ -61,7 +61,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: px-personal-proxy-release-${{ runner.os }}
+          shared-key: px-release-${{ runner.os }}
 
       - uses: actions/cache@v4
         id: tun-helper-cache
@@ -106,43 +106,36 @@ jobs:
       - name: Package artifacts
         shell: bash
         run: |
-          mkdir -p release/px-personal-proxy-${{ matrix.artifact_suffix }}/config
-          mkdir -p release/px-personal-proxy-${{ matrix.artifact_suffix }}/bin
-          mkdir -p release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts
-          cp config/client.prod.example.toml release/px-personal-proxy-${{ matrix.artifact_suffix }}/config/client.toml
-          cp scripts/create-client-prod-config.sh release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/create-client-prod-config.sh
-          cp scripts/fetch-server-cert.sh release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/fetch-server-cert.sh
-          cp scripts/fetch-tun-helper.sh release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/fetch-tun-helper.sh
-          cp scripts/start-gui.sh release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/start-gui.sh
+          mkdir -p release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/config
+          mkdir -p release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/bin
+          mkdir -p release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/scripts
+          cp config/client.prod.example.toml release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/config/client.toml
+          cp scripts/fetch-tun-helper.sh release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/scripts/fetch-tun-helper.sh
           if [[ "${{ matrix.os }}" == windows-* ]]; then
             test -f "bin/tun2socks.exe"
             test -f "bin/wintun.dll"
-            cp bin/tun2socks.exe release/px-personal-proxy-${{ matrix.artifact_suffix }}/bin/tun2socks.exe
-            cp bin/wintun.dll release/px-personal-proxy-${{ matrix.artifact_suffix }}/bin/wintun.dll
-            cp scripts/create-client-prod-config.ps1 release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/create-client-prod-config.ps1
-            cp scripts/fetch-server-cert.ps1 release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/fetch-server-cert.ps1
-            cp scripts/fetch-tun-helper.ps1 release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/fetch-tun-helper.ps1
-            cp scripts/start-gui.ps1 release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/start-gui.ps1
-            cp scripts/start-gui.bat release/px-personal-proxy-${{ matrix.artifact_suffix }}/scripts/start-gui.bat
+            cp bin/tun2socks.exe release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/bin/tun2socks.exe
+            cp bin/wintun.dll release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/bin/wintun.dll
+            cp scripts/fetch-tun-helper.ps1 release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/scripts/fetch-tun-helper.ps1
             if [[ -f "target/release/PX 个人代理.exe" ]]; then
-              cp "target/release/PX 个人代理.exe" "release/px-personal-proxy-${{ matrix.artifact_suffix }}/PX 个人代理.exe"
+              cp "target/release/PX 个人代理.exe" "release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/PX 个人代理.exe"
             elif [[ -f "target/release/tauri-ui.exe" ]]; then
-              cp target/release/tauri-ui.exe release/px-personal-proxy-${{ matrix.artifact_suffix }}/tauri-ui.exe
+              cp target/release/tauri-ui.exe release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/tauri-ui.exe
             fi
           else
             test -f "bin/tun2socks"
-            cp bin/tun2socks release/px-personal-proxy-${{ matrix.artifact_suffix }}/bin/tun2socks
+            cp bin/tun2socks release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/bin/tun2socks
           fi
 
           if [[ "${{ matrix.os }}" != windows-* ]] && [[ -f "target/release/PX 个人代理" ]]; then
-            cp "target/release/PX 个人代理" "release/px-personal-proxy-${{ matrix.artifact_suffix }}/PX 个人代理"
+            cp "target/release/PX 个人代理" "release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/PX 个人代理"
           elif [[ "${{ matrix.os }}" != windows-* ]] && [[ -f "target/release/tauri-ui" ]]; then
-            cp target/release/tauri-ui release/px-personal-proxy-${{ matrix.artifact_suffix }}/tauri-ui
+            cp target/release/tauri-ui release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/tauri-ui
           fi
 
           if [[ -d "${{ matrix.bundle_dir }}" ]]; then
             find "${{ matrix.bundle_dir }}" -mindepth 1 -maxdepth 1 -print0 | while IFS= read -r -d '' path; do
-              cp -R "$path" "release/px-personal-proxy-${{ matrix.artifact_suffix }}/"
+              cp -R "$path" "release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/"
             done
           fi
 
@@ -150,18 +143,18 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          tar -czf release/px-personal-proxy-${{ matrix.artifact_suffix }}.tar.gz -C release px-personal-proxy-${{ matrix.artifact_suffix }}
+          tar -czf release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}.tar.gz -C release px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}
 
       - name: Archive artifacts (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path "release/px-personal-proxy-${{ matrix.artifact_suffix }}\*" -DestinationPath "release/px-personal-proxy-${{ matrix.artifact_suffix }}.zip" -Force
+          Compress-Archive -Path "release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}\*" -DestinationPath "release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}.zip" -Force
 
       - uses: actions/upload-artifact@v4
         with:
-          name: px-personal-proxy-${{ matrix.artifact_suffix }}
-          path: release/px-personal-proxy-${{ matrix.artifact_suffix }}.${{ matrix.archive_ext }}
+          name: px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}
+          path: release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}.${{ matrix.archive_ext }}
 
   publish-release:
     needs:

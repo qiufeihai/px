@@ -25,9 +25,10 @@ npm run tauri build -- --bundles app
 
 ## 2. GitHub Actions 打包
 
-工作流文件：
+工作流入口：
 
-- [client-release.yml](file:///Users/qiufeihai/workspace/px/.github/workflows/client-release.yml)
+- 展示名：`px-release`
+- 文件： [px-release.yml](file:///Users/qiufeihai/workspace/px/.github/workflows/px-release.yml)
 
 触发方式：
 
@@ -42,6 +43,7 @@ npm run tauri build -- --bundles app
 - 构建前自动下载固定版本的 TUN helper
 - 若 helper 下载失败或未进入发布目录，构建会直接失败
 - 把 `config/client.toml` 示例、辅助脚本、`bin/` helper 和 GUI bundle 一起归档
+- 最终归档文件名固定为 `px-${tag}-${os}`，例如 `px-v0.1.0-macos.tar.gz`、`px-v0.1.0-windows.zip`
 - 自动上传到 GitHub Release
 
 说明：
@@ -56,7 +58,7 @@ npm run tauri build -- --bundles app
 当前发布包按“当前运行目录”组织：
 
 ```text
-px-personal-proxy-xxx/
+px-vX.Y.Z-xxx/
   PX 个人代理.app | PX 个人代理.exe
   bin/
     tun2socks | tun2socks.exe
@@ -65,10 +67,13 @@ px-personal-proxy-xxx/
     client.toml
   scripts/
     create-client-prod-config.(sh|ps1)
-    fetch-server-cert.(sh|ps1)
     fetch-tun-helper.(sh|ps1)
-    start-gui.(sh|ps1|bat)
 ```
+
+其中：
+
+- `${tag}` 是发布 tag，例如 `v0.1.0`
+- `${os}` 目前是 `macos` 或 `windows`
 
 约定：
 
@@ -76,20 +81,19 @@ px-personal-proxy-xxx/
 - Tauri 会启动共享 runtime
 - 若启用 TUN，GUI 会从当前运行目录下的 `bin/` 查找 helper
 - 当前发布包支持直接双击根目录下的 `PX 个人代理.app` 或 `PX 个人代理.exe`
-- `scripts/start-gui.(sh|ps1|bat)` 仍可作为兼容辅助入口
 - 正式发布包默认已自带 `bin/` 下的 helper，一般不需要用户手动下载
 
 macOS 示例：
 
 ```bash
-cd px-personal-proxy-macos
+cd px-v0.1.0-macos
 open "PX 个人代理.app"
 ```
 
 Windows PowerShell 示例：
 
 ```powershell
-Set-Location px-personal-proxy-windows
+Set-Location px-v0.1.0-windows
 .\PX 个人代理.exe
 ```
 
@@ -100,9 +104,7 @@ Set-Location px-personal-proxy-windows
 - Windows Release 为便携目录 `zip`，解压后可直接运行根目录下的 `PX 个人代理.exe`
 - `config/client.toml`
 - `scripts/create-client-prod-config.(sh|ps1)`
-- `scripts/fetch-server-cert.(sh|ps1)`
 - `scripts/fetch-tun-helper.(sh|ps1)`
-- `scripts/start-gui.(sh|ps1|bat)`
 - 发布包默认包含 `bin/tun2socks` 或 `bin/tun2socks.exe`
 - Windows 发布包默认包含 `bin/wintun.dll`
 
@@ -112,7 +114,7 @@ Set-Location px-personal-proxy-windows
 - `server_addr` 必须写成实际 VPS 公网 IP 和端口
 - `server-cert.pem` 必须和服务端正在使用的证书一致
 - 若证书重签发，客户端也必须同步替换证书文件
-- Windows 下建议用 PowerShell 脚本生成配置和拉取证书
+- Windows 下建议用 PowerShell 脚本生成配置
 - 若本地开发目录缺少 helper，可执行 `scripts/fetch-tun-helper.sh` 或 `scripts/fetch-tun-helper.ps1`
 - `fetch-tun-helper` 现在默认优先使用当前仓库的缓存 Release：`tun-helper-cache-v1`，失败后再回退官方源
 - 正式发布后若用户手动删掉了 `bin/`，也可以直接在 GUI 里点击“下载 helper”

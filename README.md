@@ -51,13 +51,8 @@
 本地联调：
 
 1. 生成开发证书：`scripts/generate-dev-cert.sh`
-2. 启动服务端：`scripts/run-server.sh`
-3. 启动 GUI 开发模式：
-
-```bash
-cd apps/tauri-ui
-npm run tauri dev
-```
+2. 启动服务端：`scripts/start-server-dev.sh`
+3. 启动客户端 GUI 开发模式：`scripts/start-gui-dev.sh`
 
 4. 冒烟测试：`scripts/smoke-test.sh`
 
@@ -72,8 +67,8 @@ npm run tauri dev
 
 1. VPS 上一键部署服务端
 2. 如需单独重签生产证书：`deploy/generate-vps-cert.sh`
-3. 拉取服务端公钥证书
-4. 生成客户端配置
+3. 手动拷贝服务端公钥证书
+4. 在 GUI 里填写客户端配置并导入证书
 5. 启动 `PX 个人代理`
 
 ## 目录说明
@@ -92,7 +87,7 @@ npm run tauri dev
 
 - 快速开始：[quickstart.md](file:///Users/qiufeihai/workspace/px/docs/quickstart.md)
 - Rocky9 部署：[rocky9-deploy.md](file:///Users/qiufeihai/workspace/px/docs/rocky9-deploy.md)
-- GUI 打包与发布：[client-packaging.md](file:///Users/qiufeihai/workspace/px/docs/client-packaging.md)
+- GUI 打包与发布：[client-packaging.md](file:///Users/qiufeihai/workspace/px/docs/client-packaging.md)，workflow: [px-release.yml](file:///Users/qiufeihai/workspace/px/.github/workflows/px-release.yml)
 - 私有协议说明：[protocol.md](file:///Users/qiufeihai/workspace/px/docs/protocol.md)
 - AI 开发规则：[AGENTS.md](file:///Users/qiufeihai/workspace/px/AGENTS.md)
 

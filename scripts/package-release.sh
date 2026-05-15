@@ -7,7 +7,7 @@ BUILD_TAURI="${BUILD_TAURI:-0}"
 TAURI_BUNDLES="${TAURI_BUNDLES:-app}"
 
 rm -rf "$OUT_DIR"
-mkdir -p "$OUT_DIR/bin" "$OUT_DIR/config" "$OUT_DIR/systemd" "$OUT_DIR/deploy" "$OUT_DIR/scripts"
+mkdir -p "$OUT_DIR/bin" "$OUT_DIR/config" "$OUT_DIR/systemd" "$OUT_DIR/scripts"
 
 cd "$ROOT_DIR"
 
@@ -17,10 +17,6 @@ cp target/release/px-server "$OUT_DIR/bin/px-server"
 cp config/server.prod.example.toml "$OUT_DIR/config/server.toml"
 cp config/client.prod.example.toml "$OUT_DIR/config/client.toml"
 cp deploy/systemd/px.service "$OUT_DIR/systemd/px.service"
-cp deploy/install-server.sh "$OUT_DIR/deploy/install-server.sh"
-cp scripts/create-client-prod-config.sh "$OUT_DIR/scripts/create-client-prod-config.sh"
-cp scripts/fetch-server-cert.sh "$OUT_DIR/scripts/fetch-server-cert.sh"
-cp scripts/start-gui.sh "$OUT_DIR/scripts/start-gui.sh"
 
 if [[ -f "$ROOT_DIR/config/server-cert.pem" ]]; then
   cp "$ROOT_DIR/config/server-cert.pem" "$OUT_DIR/config/server-cert.pem"
@@ -39,17 +35,14 @@ if [[ "$BUILD_TAURI" == "1" ]]; then
   )
 
   if [[ -x "$ROOT_DIR/target/release/PX 个人代理" ]]; then
-    mkdir -p "$OUT_DIR/gui"
-    cp "$ROOT_DIR/target/release/PX 个人代理" "$OUT_DIR/gui/PX 个人代理"
+    cp "$ROOT_DIR/target/release/PX 个人代理" "$OUT_DIR/PX 个人代理"
   elif [[ -x "$ROOT_DIR/target/release/tauri-ui" ]]; then
-    mkdir -p "$OUT_DIR/gui"
-    cp "$ROOT_DIR/target/release/tauri-ui" "$OUT_DIR/gui/tauri-ui"
+    cp "$ROOT_DIR/target/release/tauri-ui" "$OUT_DIR/tauri-ui"
   fi
 
   if [[ -d "$ROOT_DIR/target/release/bundle/macos" ]]; then
-    mkdir -p "$OUT_DIR/gui"
     find "$ROOT_DIR/target/release/bundle/macos" -mindepth 1 -maxdepth 1 -name '*.app' -print0 | while IFS= read -r -d '' path; do
-      cp -R "$path" "$OUT_DIR/gui/"
+      cp -R "$path" "$OUT_DIR/"
     done
   fi
 fi

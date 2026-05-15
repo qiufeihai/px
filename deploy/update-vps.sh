@@ -5,6 +5,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PREFIX="${PREFIX:-/opt/px}"
 SERVICE_NAME="${SERVICE_NAME:-px}"
 LEGACY_SERVICE_NAME="${LEGACY_SERVICE_NAME:-px-server}"
+CONFIG_SRC="${CONFIG_SRC:-$REPO_DIR/config/server.prod.example.toml}"
 CONFIG_DEST="${CONFIG_DEST:-$PREFIX/config/server.toml}"
 
 if [[ $EUID -ne 0 ]]; then
@@ -33,17 +34,12 @@ systemctl stop "${LEGACY_SERVICE_NAME}.service" || true
 install -m 0755 "$REPO_DIR/target/release/px-server" "$PREFIX/bin/px-server.new"
 mv -f "$PREFIX/bin/px-server.new" "$PREFIX/bin/px-server"
 
-if [[ -f "$CONFIG_DEST" ]]; then
-  cp "$CONFIG_DEST" "${CONFIG_DEST}.bak.$(date +%Y%m%d%H%M%S)"
+if [[ ! -f "$CONFIG_SRC" ]]; then
+  echo "missing config template: $CONFIG_SRC"
+  exit 1
 fi
 
-cat > "$CONFIG_DEST" <<EOF
-listen_addr = "0.0.0.0:6666"
-tls_cert_path = "$PREFIX/config/server-cert.pem"
-tls_key_path = "$PREFIX/config/server-key.pem"
-connect_timeout_ms = 5000
-log_level = "info"
-EOF
+cp "$CONFIG_SRC" "$CONFIG_DEST"
 chmod 0644 "$CONFIG_DEST"
 
 systemctl start "${SERVICE_NAME}.service"

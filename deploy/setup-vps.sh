@@ -19,7 +19,7 @@ fi
 
 if [[ -z "$SERVER_IP" && "$SKIP_CERT_GEN" != "1" ]]; then
   echo "SERVER_IP is required when generating certificate"
-  echo "example: sudo SERVER_IP=1.2.3.4 ./deploy/bootstrap-vps.sh"
+  echo "example: sudo SERVER_IP=1.2.3.4 ./deploy/setup-vps.sh"
   exit 1
 fi
 
@@ -49,13 +49,7 @@ cp "$REPO_DIR/target/release/px-server" "$PREFIX/bin/px-server"
 cp "$REPO_DIR/deploy/systemd/px.service" "$PREFIX/systemd/px.service"
 
 if [[ -f "$CONFIG_SRC" ]]; then
-  cat > "$CONFIG_DEST" <<EOF
-listen_addr = "0.0.0.0:6666"
-tls_cert_path = "$PREFIX/config/server-cert.pem"
-tls_key_path = "$PREFIX/config/server-key.pem"
-connect_timeout_ms = 5000
-log_level = "info"
-EOF
+  cp "$CONFIG_SRC" "$CONFIG_DEST"
 else
   echo "missing config template: $CONFIG_SRC"
   exit 1

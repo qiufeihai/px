@@ -9,7 +9,7 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::target::connect_target;
 
@@ -66,9 +66,9 @@ pub async fn handle_client(
     .write_to(&mut tls_stream)
     .await?;
 
-    info!(peer = %peer_addr, port = request.port, "relay started");
+    debug!(peer = %peer_addr, port = request.port, "relay started");
     let (upstream_bytes, downstream_bytes) = relay(&mut tls_stream, &mut target_stream).await?;
-    info!(peer = %peer_addr, upstream_bytes, downstream_bytes, "relay finished");
+    debug!(peer = %peer_addr, upstream_bytes, downstream_bytes, "relay finished");
     Ok(())
 }
 
