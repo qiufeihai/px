@@ -16,8 +16,10 @@ cd "$REPO_DIR"
 git pull --ff-only
 cargo build --release -p px-server
 
+systemctl stop "${SERVICE_NAME}.service"
+
 cp "$REPO_DIR/target/release/px-server" "$PREFIX/bin/px-server"
 chmod 0755 "$PREFIX/bin/px-server"
 
-systemctl restart "${SERVICE_NAME}.service"
+systemctl start "${SERVICE_NAME}.service"
 systemctl status "${SERVICE_NAME}.service" --no-pager
