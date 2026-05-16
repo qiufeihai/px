@@ -55,6 +55,17 @@ scripts/run-browser-bench.sh
 BROWSER_TARGETS="github.com:443 www.apple.com:443" ITERATIONS=20 scripts/run-browser-bench.sh
 ```
 
+如果要做“域名 vs IP”对照，也可以额外给一组手工 IP：
+
+```bash
+BROWSER_TARGETS="github.com:443 www.apple.com:443" \
+BROWSER_IP_TARGETS="140.82.114.4:443 17.253.144.10:443" \
+ITERATIONS=20 \
+scripts/run-browser-bench.sh
+```
+
+这里的 `BROWSER_IP_TARGETS` 需要你自己提供对应站点当前可用的 IP，用于粗看 DNS 解析是否可能是主要波动来源。
+
 默认会连续执行多轮：
 
 - `ROUNDS=3`
@@ -86,6 +97,14 @@ ROUNDS=5 ITERATIONS=20 scripts/run-browser-bench.sh
 - `*_mean_ms`：跨多个目标的平均结果
 - `failed_targets`：失败目标列表，方便排除临时网络问题
 - `per_target_summary`：按目标汇总的均值，方便识别某个站点是否持续抖动
+- `domain_summary`：仅域名目标的汇总
+- `ip_summary`：仅 IP 对照目标的汇总
+
+判断是否值得做轻量 DNS 降抖时，优先看：
+
+- 同一轮里 `domain_summary` 是否持续明显慢于 `ip_summary`
+- 同类目标下，域名组的 `socks_p95_ms` / `socks_p99_ms` 是否持续更差
+- 多跑几轮后差异是否仍然稳定，而不是单轮偶发波动
 
 ## 推荐后续补充
 
