@@ -126,8 +126,10 @@ app.innerHTML = `
         <button id="save-config">保存配置</button>
         <button id="start-client" class="primary-action">启动</button>
         <button id="stop-client" class="danger">停止</button>
+        <button id="run-test" class="secondary">连通性测试</button>
         <button id="open-config-dir" class="secondary">打开配置目录</button>
       </div>
+      <div id="test-result" class="status-summary connectivity-summary">尚未执行连通性测试。</div>
       <div id="onboarding-state" class="status-summary">正在检查启动条件...</div>
       <div id="config-dirty-state" class="callout subtle" hidden>当前配置已保存。</div>
     </section>
@@ -149,13 +151,6 @@ app.innerHTML = `
       <div id="status-summary" class="status-summary">状态摘要：正在读取...</div>
       <div id="runtime-status-message" class="callout subtle">正在读取运行状态...</div>
       <pre id="runtime-logs" class="logs">尚无日志。</pre>
-      <section class="test-panel">
-        <div class="status-row">
-          <strong>连通性测试</strong>
-          <button id="run-test" class="secondary">测试</button>
-        </div>
-        <pre id="test-result">尚未执行测试。</pre>
-      </section>
     </section>
   </main>
 `
@@ -196,6 +191,7 @@ let currentRuntimeState: RuntimeState | null = null
 let currentRuntimePaths: RuntimePaths | null = null
 let currentTunState: TunState | null = null
 let downloadingTunHelper = false
+let connectivityTestPending = false
 let statusPollTimer: number | null = null
 let statusPollInFlight = false
 let logPollTimer: number | null = null
@@ -258,8 +254,17 @@ function renderDirtyState() {
   }
 }
 
+function renderConnectivityAction() {
+  const shouldHighlight = currentRuntimeState?.running === true && connectivityTestPending
+  runTestButton.classList.toggle('attention-action', shouldHighlight)
+  runTestButton.classList.toggle('secondary', !shouldHighlight)
+}
+
 function renderState(state: RuntimeState) {
   currentRuntimeState = state
+  if (!state.running) {
+    connectivityTestPending = false
+  }
   const statusLabel = state.running ? '运行中' : '未启动'
   const localAddr = fields.local_socks_addr.value.trim() || '未设置'
   const configPath = currentRuntimePaths?.config_path || '未读取'
@@ -292,6 +297,7 @@ function renderState(state: RuntimeState) {
   updateStatusPolling()
   updateLogPolling()
   renderDirtyState()
+  renderConnectivityAction()
 }
 
 function renderTunState(state: TunState) {
@@ -366,6 +372,7 @@ function renderOnboarding(config: ClientConfig, paths: RuntimePaths) {
   startClientButton.disabled = !canStart
   startTunButton.disabled = !canStart || !fields.tun_enabled.checked || currentTunState?.running === true
   runTestButton.disabled = !canStart
+  renderConnectivityAction()
 }
 
 async function refreshConfig() {
@@ -533,6 +540,8 @@ document.querySelector<HTMLButtonElement>('#start-client')!.addEventListener('cl
     renderState(state)
     await refreshTunState()
     await refreshLogs()
+    connectivityTestPending = state.running
+    renderConnectivityAction()
     testResult.textContent = '配置已保存，客户端已启动。'
   } catch (error) {
     testResult.textContent = toErrorMessage(error)
@@ -541,6 +550,7 @@ document.querySelector<HTMLButtonElement>('#start-client')!.addEventListener('cl
 
 document.querySelector<HTMLButtonElement>('#stop-client')!.addEventListener('click', async () => {
   const state = await invoke<RuntimeState>('stop_client')
+  connectivityTestPending = false
   renderState(state)
   await refreshTunState()
   await refreshLogs()
@@ -610,17 +620,23 @@ document.querySelector<HTMLButtonElement>('#run-test')!.addEventListener('click'
   testResult.textContent = '测试中...'
   try {
     const result = await invoke<string>('test_proxy_connectivity')
+    connectivityTestPending = false
+    renderConnectivityAction()
     testResult.textContent = result
   } catch (error) {
+    connectivityTestPending = false
+    renderConnectivityAction()
     testResult.textContent = toErrorMessage(error)
   }
 })
 
 Object.values(fields).forEach((field) => {
   const handleFieldChange = async () => {
+    connectivityTestPending = false
     const paths = await refreshPaths()
     renderOnboarding(getConfig(), paths)
     renderDirtyState()
+    renderConnectivityAction()
   }
 
   field.addEventListener('input', handleFieldChange)

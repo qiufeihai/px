@@ -283,6 +283,10 @@ button.attention-action:hover {
   word-break: break-word;
 }
 
+.connectivity-summary {
+  white-space: pre-line;
+}
+
 .status-summary-ok {
   border-color: #86efac;
   background: #f0fdf4;
@@ -299,14 +303,6 @@ button.attention-action:hover {
   border-color: #fca5a5;
   background: #fef2f2;
   color: #991b1b;
-}
-
-.status-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
 }
 
 pre {
@@ -339,10 +335,6 @@ pre {
 .status-summary + .callout,
 .callout + .logs {
   margin-top: 12px;
-}
-
-.test-panel {
-  margin-top: 14px;
 }
 
 @media (max-width: 720px) {
