@@ -69,6 +69,7 @@ Windows PowerShell:
 补充说明：
 
 - 开发环境里可以继续用上述脚本下载 helper
+- macOS 开发态若要启用 TUN，还需先执行 `cargo build -p px-dns-helper`
 - 下载脚本默认优先使用当前仓库的缓存 Release：`tun-helper-cache-v1`，失败后再回退官方源
 - 正式发布包默认会自带 helper
 - 如果正式发布后的 `bin/` 被手动删掉，也可以直接在 GUI 里点击“下载 helper”
@@ -86,6 +87,8 @@ Windows PowerShell:
 - 正式客户端只有 GUI：`PX 个人代理`
 - 首版只支持 TCP，不支持 UDP
 - TUN 通过外部 helper 接到本地 SOCKS5，目前只做全局 TCP
+- macOS TUN 模式会额外启动本地 `DNS helper`，把当前主网卡 DNS 临时切到 `127.0.0.1`，再经现有 SOCKS5/TCP 转发解析请求
+- 因为当前仍是 `TCP-only`，浏览器里的 QUIC / HTTP3 / STUN 一类 UDP 流量不会被代理
 - 当前客户端按 `server_cert_path` 固定服务端证书文件
 - 本地建议先用 `127.0.0.1` 联调，跑通后再换成 Rocky9 VPS
 

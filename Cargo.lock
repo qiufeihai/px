@@ -2042,6 +2042,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "px-dns-helper"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tokio",
+]
+
+[[package]]
 name = "px-proto"
 version = "0.1.0"
 dependencies = [

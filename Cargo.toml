@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/px-dns-helper",
   "crates/px-proto",
   "crates/px-runtime",
   "crates/px-server",

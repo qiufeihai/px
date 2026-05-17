@@ -43,8 +43,14 @@ struct TunState {
 }
 
 struct TunRuntime {
-    child: Child,
+    process: TunProcess,
     route_plan: TunRoutePlan,
+    runtime_dir: PathBuf,
+}
+
+enum TunProcess {
+    Local(Child),
+    Privileged { pid: u32 },
 }
 
 #[derive(Debug, Clone)]
@@ -203,26 +209,30 @@ fn runtime_state(state: State<'_, AppState>) -> Result<RuntimeState, String> {
 #[tauri::command]
 fn tun_state(state: State<'_, AppState>) -> Result<TunState, String> {
     let mut guard = state.tun_runtime.lock().map_err(|_| "state poisoned".to_string())?;
-    if let Some(runtime) = guard.as_mut() {
-        match runtime.child.try_wait() {
-            Ok(Some(status)) => {
-                let pid = runtime.child.id();
-                let route_plan = runtime.route_plan.clone();
-                *guard = None;
-                let _ = cleanup_tun_routes(&route_plan, &state.logs);
-                Ok(TunState {
-                    running: false,
-                    pid: Some(pid),
-                    message: format!("TUN helper 已退出，状态码 {}", status),
-                })
-            }
-            Ok(None) => Ok(TunState {
-                running: true,
-                pid: Some(runtime.child.id()),
-                message: "TUN 已运行".to_string(),
-            }),
-            Err(error) => Err(error.to_string()),
+    if guard.is_none() {
+        if let Some(runtime) = recover_tun_runtime()? {
+            *guard = Some(runtime);
         }
+    }
+    if let Some(runtime) = guard.as_mut() {
+        let pid = tun_process_pid(&runtime.process);
+        if tun_process_is_running(&mut runtime.process)? {
+            return Ok(TunState {
+                running: true,
+                pid: Some(pid),
+                message: "TUN 已运行".to_string(),
+            });
+        }
+
+        let runtime = guard.take().ok_or_else(|| "state poisoned".to_string())?;
+        if matches!(runtime.process, TunProcess::Local(_)) {
+            let _ = cleanup_tun_routes(&runtime.route_plan, &state.logs);
+        }
+        Ok(TunState {
+            running: false,
+            pid: Some(pid),
+            message: "TUN helper 已退出，请查看最近日志。".to_string(),
+        })
     } else {
         Ok(TunState {
             running: false,
@@ -304,7 +314,7 @@ async fn start_tun(state: State<'_, AppState>) -> Result<TunState, String> {
         if guard.is_some() {
             return Ok(TunState {
                 running: true,
-                pid: guard.as_ref().map(|runtime| runtime.child.id()),
+                pid: guard.as_ref().map(|runtime| tun_process_pid(&runtime.process)),
                 message: "TUN 已在运行".to_string(),
             });
         }
@@ -316,14 +326,33 @@ async fn start_tun(state: State<'_, AppState>) -> Result<TunState, String> {
     let route_plan = validate_tun_start(&runtime_dir, &config)?;
     ensure_client_runtime_running(&state, &config).await?;
 
-    let mut child = spawn_tun_helper(&runtime_dir, &config, &route_plan.primary_interface, &state.logs)?;
-    std::thread::sleep(Duration::from_millis(800));
-    if let Err(error) = setup_tun_routes(&route_plan, &state.logs) {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(error);
-    }
-    let pid = child.id();
+    let process = if cfg!(target_os = "macos") {
+        let runtime_dir_for_task = runtime_dir.clone();
+        let config_for_task = config.clone();
+        let route_plan_for_task = route_plan.clone();
+        let logs_for_task = state.logs.clone();
+        tokio::task::spawn_blocking(move || {
+            start_macos_privileged_tun(
+                &runtime_dir_for_task,
+                &config_for_task,
+                &route_plan_for_task,
+                &logs_for_task,
+            )
+        })
+        .await
+        .map_err(|error| error.to_string())??
+    } else {
+        let mut child = spawn_local_tun_helper(&runtime_dir, &config, &route_plan.primary_interface, &state.logs)?;
+        std::thread::sleep(Duration::from_millis(800));
+        if let Err(error) = setup_tun_routes(&route_plan, &state.logs) {
+            append_tun_helper_log_tail(&runtime_dir, &state.logs);
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+        TunProcess::Local(child)
+    };
+    let pid = tun_process_pid(&process);
 
     let mut guard = state.tun_runtime.lock().map_err(|_| "state poisoned".to_string())?;
     if guard.is_some() {
@@ -333,7 +362,11 @@ async fn start_tun(state: State<'_, AppState>) -> Result<TunState, String> {
             message: "TUN 已在运行".to_string(),
         });
     }
-    *guard = Some(TunRuntime { child, route_plan });
+    *guard = Some(TunRuntime {
+        process,
+        route_plan,
+        runtime_dir,
+    });
     Ok(TunState {
         running: true,
         pid: Some(pid),
@@ -345,14 +378,17 @@ async fn start_tun(state: State<'_, AppState>) -> Result<TunState, String> {
 async fn stop_tun(state: State<'_, AppState>) -> Result<TunState, String> {
     let runtime = {
         let mut guard = state.tun_runtime.lock().map_err(|_| "state poisoned".to_string())?;
+        if guard.is_none() {
+            if let Some(runtime) = recover_tun_runtime()? {
+                *guard = Some(runtime);
+            }
+        }
         guard.take()
     };
 
-    if let Some(mut runtime) = runtime {
-        cleanup_tun_routes(&runtime.route_plan, &state.logs)?;
-        let pid = runtime.child.id();
-        runtime.child.kill().map_err(|error| error.to_string())?;
-        let _ = runtime.child.wait();
+    if let Some(runtime) = runtime {
+        let pid = tun_process_pid(&runtime.process);
+        stop_tun_runtime(runtime, &state.logs)?;
         append_log_line(&state.logs, "tun", "TUN helper 已停止。");
         Ok(TunState {
             running: false,
@@ -556,6 +592,14 @@ async fn ensure_client_runtime_running(state: &State<'_, AppState>, config: &Cli
     Ok(())
 }
 
+fn tun_helper_log_path(runtime_dir: &Path) -> PathBuf {
+    runtime_dir.join("logs/tun-helper.log")
+}
+
+fn tun_helper_pid_path(runtime_dir: &Path) -> PathBuf {
+    runtime_dir.join("logs/tun-helper.pid")
+}
+
 fn resolve_runtime_path(runtime_dir: &Path, value: &str) -> PathBuf {
     let path = PathBuf::from(value);
     if path.is_absolute() {
@@ -565,13 +609,23 @@ fn resolve_runtime_path(runtime_dir: &Path, value: &str) -> PathBuf {
     }
 }
 
-fn spawn_tun_helper(
+fn spawn_local_tun_helper(
     runtime_dir: &Path,
     config: &ClientConfig,
     primary_interface: &str,
     logs: &Arc<Mutex<String>>,
 ) -> Result<Child, String> {
     let helper_path = resolve_runtime_path(runtime_dir, &config.tun.helper_path);
+    let helper_log_path = tun_helper_log_path(runtime_dir);
+    if let Some(parent) = helper_log_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let stdout = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&helper_log_path)
+        .map_err(|error| error.to_string())?;
+    let stderr = stdout.try_clone().map_err(|error| error.to_string())?;
     let mut command = Command::new(&helper_path);
     command
         .current_dir(runtime_dir)
@@ -586,21 +640,91 @@ fn spawn_tun_helper(
         .arg("-loglevel")
         .arg(map_tun_log_level(&config.log_level))
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr));
 
     let child = command.spawn().map_err(|error| error.to_string())?;
     append_log_line(
         logs,
         "tun",
         &format!(
-            "已启动 helper: {} -> socks5://{} ({})",
+            "已启动 helper: {} -> socks5://{} ({})，日志: {}",
             helper_path.display(),
             config.local_socks_addr,
-            format_tun_summary(&config.tun)
+            format_tun_summary(&config.tun),
+            helper_log_path.display()
         ),
     );
     Ok(child)
+}
+
+fn start_macos_privileged_tun(
+    runtime_dir: &Path,
+    config: &ClientConfig,
+    route_plan: &TunRoutePlan,
+    logs: &Arc<Mutex<String>>,
+) -> Result<TunProcess, String> {
+    let helper_path = resolve_runtime_path(runtime_dir, &config.tun.helper_path);
+    let dns_helper_path = resolve_macos_dns_helper(runtime_dir)?;
+    let helper_log_path = tun_helper_log_path(runtime_dir);
+    let helper_pid_path = tun_helper_pid_path(runtime_dir);
+    if let Some(parent) = helper_log_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let _ = fs::remove_file(&helper_log_path);
+    let _ = fs::remove_file(&helper_pid_path);
+    let script_path = resolve_macos_tun_helper_script(runtime_dir)?;
+    append_log_line(
+        logs,
+        "tun",
+        &format!(
+            "macOS TUN 需要管理员权限，准备启动提权 helper。script={} helper={} dns_helper={}",
+            script_path.display(),
+            helper_path.display(),
+            dns_helper_path.display()
+        ),
+    );
+
+    let output = run_macos_privileged_command(&[
+        "/bin/bash".to_string(),
+        script_path.display().to_string(),
+        "start".to_string(),
+        helper_path.display().to_string(),
+        dns_helper_path.display().to_string(),
+        config.local_socks_addr.clone(),
+        config.tun.device_name.clone(),
+        route_plan.primary_interface.clone(),
+        config.tun.mtu.to_string(),
+        map_tun_log_level(&config.log_level).to_string(),
+        route_plan.tun_ipv4.clone(),
+        route_plan.primary_gateway.clone(),
+        route_plan.server_ip.clone(),
+        helper_log_path.display().to_string(),
+        helper_pid_path.display().to_string(),
+    ])?;
+    let pid = output
+        .trim()
+        .parse::<u32>()
+        .map_err(|_| format!("提权 helper 返回了无效 pid: {output}"))?;
+
+    std::thread::sleep(Duration::from_millis(800));
+    if !is_process_running(pid) {
+        append_tun_helper_log_tail(runtime_dir, logs);
+        return Err("TUN helper 提权启动失败，请查看最近日志。".to_string());
+    }
+
+    append_log_line(
+        logs,
+        "tun",
+        &format!(
+            "已通过管理员权限启动 helper: {} -> socks5://{} ({})，日志: {}",
+            helper_path.display(),
+            config.local_socks_addr,
+            format_tun_summary(&config.tun),
+            helper_log_path.display()
+        ),
+    );
+    Ok(TunProcess::Privileged { pid })
 }
 
 fn helper_relative_path() -> &'static str {
@@ -608,6 +732,14 @@ fn helper_relative_path() -> &'static str {
         "bin/tun2socks.exe"
     } else {
         "bin/tun2socks"
+    }
+}
+
+fn dns_helper_relative_path() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "bin/px-dns-helper.exe"
+    } else {
+        "bin/px-dns-helper"
     }
 }
 
@@ -667,25 +799,42 @@ fn run_tun_helper_fetch_script(runtime_dir: &Path, logs: &Arc<Mutex<String>>) ->
 }
 
 fn resolve_fetch_tun_helper_script(runtime_dir: &Path) -> Result<PathBuf, String> {
-    let candidates = if cfg!(target_os = "windows") {
-        vec![
-            runtime_dir.join("scripts/fetch-tun-helper.ps1"),
-            runtime_dir.join("../../scripts/fetch-tun-helper.ps1"),
-        ]
+    let script_name = if cfg!(target_os = "windows") {
+        "fetch-tun-helper.ps1"
     } else {
-        vec![
-            runtime_dir.join("scripts/fetch-tun-helper.sh"),
-            runtime_dir.join("../../scripts/fetch-tun-helper.sh"),
-        ]
+        "fetch-tun-helper.sh"
     };
+    resolve_runtime_script(runtime_dir, script_name).ok_or_else(|| {
+        "未找到 fetch-tun-helper 脚本，请确认当前运行目录是发布目录，或在开发环境从 apps/tauri-ui 启动 GUI。".to_string()
+    })
+}
 
-    for candidate in candidates {
+fn resolve_macos_tun_helper_script(runtime_dir: &Path) -> Result<PathBuf, String> {
+    resolve_runtime_script(runtime_dir, "macos-tun-helper.sh").ok_or_else(|| {
+        "未找到 macOS TUN 提权脚本，请确认当前运行目录包含 scripts/macos-tun-helper.sh。".to_string()
+    })
+}
+
+fn resolve_runtime_script(runtime_dir: &Path, script_name: &str) -> Option<PathBuf> {
+    for dir in runtime_dir.ancestors() {
+        let candidate = dir.join("scripts").join(script_name);
         if candidate.exists() {
-            return Ok(candidate);
+            return Some(candidate);
         }
     }
+    None
+}
 
-    Err("未找到 fetch-tun-helper 脚本，请确认当前运行目录是发布目录，或在开发环境从 apps/tauri-ui 启动 GUI。".to_string())
+fn resolve_macos_dns_helper(runtime_dir: &Path) -> Result<PathBuf, String> {
+    let packaged_path = runtime_dir.join(dns_helper_relative_path());
+    if packaged_path.exists() {
+        return Ok(packaged_path);
+    }
+
+    Err(format!(
+        "未找到 macOS DNS helper: {}。请先构建或打包 px-dns-helper，再启动 TUN。",
+        packaged_path.display()
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -834,15 +983,100 @@ fn cleanup_tun_routes(plan: &TunRoutePlan, logs: &Arc<Mutex<String>>) -> Result<
 fn stop_tun_impl(state: &State<'_, AppState>) -> Result<(), String> {
     let runtime = {
         let mut guard = state.tun_runtime.lock().map_err(|_| "state poisoned".to_string())?;
+        if guard.is_none() {
+            if let Some(runtime) = recover_tun_runtime()? {
+                *guard = Some(runtime);
+            }
+        }
         guard.take()
     };
 
-    if let Some(mut runtime) = runtime {
-        cleanup_tun_routes(&runtime.route_plan, &state.logs)?;
-        let _ = runtime.child.kill();
-        let _ = runtime.child.wait();
+    if let Some(runtime) = runtime {
+        stop_tun_runtime(runtime, &state.logs)?;
     }
     Ok(())
+}
+
+fn stop_tun_runtime(runtime: TunRuntime, logs: &Arc<Mutex<String>>) -> Result<(), String> {
+    match runtime.process {
+        TunProcess::Local(mut child) => {
+            cleanup_tun_routes(&runtime.route_plan, logs)?;
+            let _ = child.kill();
+            let _ = child.wait();
+            Ok(())
+        }
+        TunProcess::Privileged { pid } => stop_macos_privileged_tun(&runtime.runtime_dir, &runtime.route_plan, pid),
+    }
+}
+
+fn recover_tun_runtime() -> Result<Option<TunRuntime>, String> {
+    if !cfg!(target_os = "macos") {
+        return Ok(None);
+    }
+
+    let runtime_dir = runtime_dir().map_err(|error| error.to_string())?;
+    let pid_path = tun_helper_pid_path(&runtime_dir);
+    if !pid_path.exists() {
+        return Ok(None);
+    }
+
+    let pid_text = fs::read_to_string(&pid_path).map_err(|error| error.to_string())?;
+    let pid = pid_text
+        .trim()
+        .parse::<u32>()
+        .map_err(|_| format!("无效的 TUN pid 文件: {}", pid_path.display()))?;
+    if !is_process_running(pid) {
+        let _ = fs::remove_file(&pid_path);
+        return Ok(None);
+    }
+
+    let config_path = client_config_path().map_err(|error| error.to_string())?;
+    if !config_path.exists() {
+        return Ok(None);
+    }
+    let config = load_client_config(&config_path).map_err(|error| error.to_string())?;
+    let route_plan = validate_tun_start(&runtime_dir, &config)?;
+
+    Ok(Some(TunRuntime {
+        process: TunProcess::Privileged { pid },
+        route_plan,
+        runtime_dir,
+    }))
+}
+
+fn stop_macos_privileged_tun(runtime_dir: &Path, plan: &TunRoutePlan, pid: u32) -> Result<(), String> {
+    let script_path = resolve_macos_tun_helper_script(runtime_dir)?;
+    let pid_path = tun_helper_pid_path(runtime_dir);
+    let _ = run_macos_privileged_command(&[
+        "bash".to_string(),
+        script_path.display().to_string(),
+        "stop".to_string(),
+        plan.device_name.clone(),
+        plan.tun_ipv4.clone(),
+        plan.primary_gateway.clone(),
+        plan.server_ip.clone(),
+        pid_path.display().to_string(),
+        pid.to_string(),
+    ])?;
+    Ok(())
+}
+
+fn tun_process_pid(process: &TunProcess) -> u32 {
+    match process {
+        TunProcess::Local(child) => child.id(),
+        TunProcess::Privileged { pid } => *pid,
+    }
+}
+
+fn tun_process_is_running(process: &mut TunProcess) -> Result<bool, String> {
+    match process {
+        TunProcess::Local(child) => match child.try_wait() {
+            Ok(None) => Ok(true),
+            Ok(Some(_)) => Ok(false),
+            Err(error) => Err(error.to_string()),
+        },
+        TunProcess::Privileged { pid } => Ok(is_process_running(*pid)),
+    }
 }
 
 fn run_command_checked(program: &str, args: &[&str]) -> Result<(), String> {
@@ -859,6 +1093,50 @@ fn run_command_checked(program: &str, args: &[&str]) -> Result<(), String> {
 
 fn run_command_best_effort(program: &str, args: &[&str]) {
     let _ = Command::new(program).args(args).status();
+}
+
+fn run_macos_privileged_command(args: &[String]) -> Result<String, String> {
+    let mut command = Command::new("osascript");
+    for line in [
+        "on run argv",
+        "set cmd to \"\"",
+        "repeat with arg in argv",
+        "set cmd to cmd & space & quoted form of arg",
+        "end repeat",
+        "return do shell script cmd with administrator privileges",
+        "end run",
+    ] {
+        command.arg("-e").arg(line);
+    }
+    command.args(args);
+
+    let output = command.output().map_err(|error| error.to_string())?;
+    if output.status.success() {
+        return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let message = if !stderr.is_empty() { stderr } else { stdout };
+    if message.contains("User canceled") {
+        return Err("已取消管理员授权，TUN 未启动。".to_string());
+    }
+    if message.is_empty() {
+        return Err("管理员权限脚本执行失败。".to_string());
+    }
+    Err(format!("管理员权限脚本执行失败: {message}"))
+}
+
+fn is_process_running(pid: u32) -> bool {
+    let output = match Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "pid="])
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => return false,
+    };
+
+    output.status.success() && !String::from_utf8_lossy(&output.stdout).trim().is_empty()
 }
 
 fn macos_tun_routes() -> &'static [&'static str] {
@@ -941,10 +1219,27 @@ fn append_log_line(logs: &Arc<Mutex<String>>, stream_name: &str, line: &str) {
         buffer.push_str(&format!("[{stream_name}] {line}"));
 
         if buffer.len() > LOG_LIMIT {
-            let start = buffer.len().saturating_sub(LOG_LIMIT);
+            let mut start = buffer.len().saturating_sub(LOG_LIMIT);
+            while start < buffer.len() && !buffer.is_char_boundary(start) {
+                start += 1;
+            }
             let trimmed = buffer[start..].to_string();
             *buffer = trimmed;
         }
+    }
+}
+
+fn append_tun_helper_log_tail(runtime_dir: &Path, logs: &Arc<Mutex<String>>) {
+    let helper_log_path = tun_helper_log_path(runtime_dir);
+    let Ok(text) = fs::read_to_string(&helper_log_path) else {
+        return;
+    };
+    let lines: Vec<&str> = text.lines().rev().take(8).collect();
+    if lines.is_empty() {
+        return;
+    }
+    for line in lines.into_iter().rev() {
+        append_log_line(logs, "tun-helper", line);
     }
 }
 

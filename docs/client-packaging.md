@@ -63,12 +63,14 @@ px-vX.Y.Z-xxx/
   px.app | px.exe
   bin/
     tun2socks | tun2socks.exe
+    px-dns-helper
     wintun.dll
   config/
     client.toml
   scripts/
     create-client-prod-config.(sh|ps1)
     fetch-tun-helper.(sh|ps1)
+    macos-tun-helper.sh
 ```
 
 其中：
@@ -81,6 +83,8 @@ px-vX.Y.Z-xxx/
 - Tauri 控制面也从当前运行目录下的 `config/client.toml` 读取配置
 - Tauri 会启动共享 runtime
 - 若启用 TUN，GUI 会从当前运行目录下的 `bin/` 查找 helper
+- macOS 启动 TUN 时，GUI 会通过 `scripts/macos-tun-helper.sh` 拉起外部提权 helper，并同时启动 `bin/px-dns-helper` 监听本地 `127.0.0.1:53`
+- macOS TUN 模式会临时把当前主网卡 DNS 指到 `127.0.0.1`，由 `px-dns-helper` 通过现有 SOCKS5/TCP 转发 DNS 查询；停止 TUN 时会恢复原 DNS
 - Windows 发布包支持直接双击根目录下的 `px.exe`
 - 正式发布包默认已自带 `bin/` 下的 helper，一般不需要用户手动下载
 
@@ -112,6 +116,8 @@ Set-Location px-v0.1.0-windows
 - `config/client.toml`
 - `scripts/create-client-prod-config.(sh|ps1)`
 - `scripts/fetch-tun-helper.(sh|ps1)`
+- macOS TUN 提权脚本 `scripts/macos-tun-helper.sh`
+- macOS DNS helper `bin/px-dns-helper`
 - macOS 发布包额外包含 `scripts/open-macos-app.sh`
 - 发布包默认包含 `bin/tun2socks` 或 `bin/tun2socks.exe`
 - Windows 发布包默认包含 `bin/wintun.dll`
@@ -127,3 +133,4 @@ Set-Location px-v0.1.0-windows
 - `fetch-tun-helper` 现在默认优先使用当前仓库的缓存 Release：`tun-helper-cache-v1`，失败后再回退官方源
 - 正式发布后若用户手动删掉了 `bin/`，也可以直接在 GUI 里点击“下载 helper”
 - GUI 现在会按可执行文件位置定位发布目录，双击根目录下的 `.app` 或 `.exe` 即可运行
+- macOS 上第一次点击“TUN 启动”会弹系统管理员授权；这是当前最小可用方案，用来在外部 helper 冷路径完成创建设备和配置路由

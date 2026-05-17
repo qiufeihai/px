@@ -9,7 +9,7 @@ use px_proto::ClientConfig;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
 
 pub type LogCallback = Arc<dyn Fn(String) + Send + Sync>;
@@ -97,16 +97,23 @@ async fn run_loop(
                         let logger = logger.clone();
                         tokio::spawn(async move {
                             if let Err(error) = socks5::handle_client(stream, peer_addr, config, upstream).await {
-                                let message = format!(
-                                    "客户端会话失败，来源 {peer_addr}: {}",
-                                    format_error_chain(&error)
-                                );
-                                logger.log(message.clone());
-                                error!(
-                                    peer = %peer_addr,
-                                    error = %format_error_chain(&error),
-                                    "client session failed"
-                                );
+                                let error_text = format_error_chain(&error);
+                                if should_surface_client_error(&error) {
+                                    let message =
+                                        format!("客户端会话失败，来源 {peer_addr}: {error_text}");
+                                    logger.log(message.clone());
+                                    error!(
+                                        peer = %peer_addr,
+                                        error = %error_text,
+                                        "client session failed"
+                                    );
+                                } else {
+                                    debug!(
+                                        peer = %peer_addr,
+                                        error = %error_text,
+                                        "ignored unsupported socks5 command"
+                                    );
+                                }
                             }
                         });
                     }
@@ -157,4 +164,8 @@ fn format_error_chain(error: &anyhow::Error) -> String {
         .map(|cause| cause.to_string())
         .collect::<Vec<_>>()
         .join(": ")
+}
+
+fn should_surface_client_error(error: &anyhow::Error) -> bool {
+    !error.chain().any(|cause| cause.to_string().contains("only CONNECT is supported"))
 }

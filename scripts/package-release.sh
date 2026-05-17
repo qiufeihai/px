@@ -12,8 +12,12 @@ mkdir -p "$OUT_DIR/bin" "$OUT_DIR/config" "$OUT_DIR/systemd" "$OUT_DIR/scripts"
 cd "$ROOT_DIR"
 
 cargo build --release -p px-server
+cargo build --release -p px-dns-helper
 
 cp target/release/px-server "$OUT_DIR/bin/px-server"
+if [[ -x "$ROOT_DIR/target/release/px-dns-helper" ]]; then
+  cp "$ROOT_DIR/target/release/px-dns-helper" "$OUT_DIR/bin/px-dns-helper"
+fi
 cp config/server.prod.example.toml "$OUT_DIR/config/server.toml"
 cp config/client.prod.example.toml "$OUT_DIR/config/client.toml"
 cp deploy/systemd/px.service "$OUT_DIR/systemd/px.service"
@@ -24,6 +28,18 @@ fi
 
 if [[ -f "$ROOT_DIR/config/server-key.pem" ]]; then
   cp "$ROOT_DIR/config/server-key.pem" "$OUT_DIR/config/server-key.pem"
+fi
+
+cp "$ROOT_DIR/scripts/fetch-tun-helper.sh" "$OUT_DIR/scripts/fetch-tun-helper.sh"
+
+if [[ -f "$ROOT_DIR/scripts/open-macos-app.sh" ]]; then
+  cp "$ROOT_DIR/scripts/open-macos-app.sh" "$OUT_DIR/scripts/open-macos-app.sh"
+  chmod +x "$OUT_DIR/scripts/open-macos-app.sh"
+fi
+
+if [[ -f "$ROOT_DIR/scripts/macos-tun-helper.sh" ]]; then
+  cp "$ROOT_DIR/scripts/macos-tun-helper.sh" "$OUT_DIR/scripts/macos-tun-helper.sh"
+  chmod +x "$OUT_DIR/scripts/macos-tun-helper.sh"
 fi
 
 if [[ "$BUILD_TAURI" == "1" ]]; then

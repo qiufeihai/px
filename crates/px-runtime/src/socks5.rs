@@ -73,7 +73,11 @@ pub async fn handle_client(
             let _ = send_failure_reply(&mut inbound, map_upstream_status_to_socks(status)).await;
             return Err(std::io::Error::new(
                 std::io::ErrorKind::ConnectionRefused,
-                format!("upstream refused with status {:?}", status),
+                format!(
+                    "upstream refused target {} with status {:?}",
+                    format_target(&request),
+                    status
+                ),
             )
             .into());
         }

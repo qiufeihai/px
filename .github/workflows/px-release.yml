@@ -89,6 +89,10 @@ jobs:
         working-directory: apps/tauri-ui
         run: npm run tauri -- build --bundles ${{ matrix.tauri_bundles }}
 
+      - name: Build macOS DNS helper
+        if: runner.os != 'Windows'
+        run: cargo build --release -p px-dns-helper
+
       - name: Verify TUN helper (macOS/Linux)
         if: runner.os != 'Windows'
         run: |
@@ -124,9 +128,13 @@ jobs:
             fi
           else
             test -f "bin/tun2socks"
+            test -f "target/release/px-dns-helper"
             cp bin/tun2socks release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/bin/tun2socks
+            cp target/release/px-dns-helper release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/bin/px-dns-helper
             cp scripts/open-macos-app.sh release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/scripts/open-macos-app.sh
+            cp scripts/macos-tun-helper.sh release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/scripts/macos-tun-helper.sh
             chmod +x release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/scripts/open-macos-app.sh
+            chmod +x release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/scripts/macos-tun-helper.sh
           fi
 
           if [[ "${{ matrix.os }}" != windows-* ]] && [[ -f "target/release/px" ]]; then

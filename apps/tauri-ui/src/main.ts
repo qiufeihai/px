@@ -192,12 +192,18 @@ let currentRuntimePaths: RuntimePaths | null = null
 let currentTunState: TunState | null = null
 let downloadingTunHelper = false
 let connectivityTestPending = false
+let clientActionInFlight = false
+let tunActionInFlight = false
 let statusPollTimer: number | null = null
 let statusPollInFlight = false
 let logPollTimer: number | null = null
 let logPollInFlight = false
 const STATUS_POLL_INTERVAL_MS = 1000
 const LOG_POLL_INTERVAL_MS = 1000
+
+function controlActionInFlight() {
+  return clientActionInFlight || tunActionInFlight
+}
 
 function setConfig(config: ClientConfig) {
   fields.server_addr.value = config.server_addr
@@ -288,8 +294,8 @@ function renderState(state: RuntimeState) {
   statusSummary.textContent = `状态摘要：${summaryParts.join(' | ')}`
   statusSummary.className = `status-summary ${state.running ? 'status-summary-ok' : 'status-summary-warn'}`
 
-  startClientButton.disabled = state.running
-  stopClientButton.disabled = !state.running
+  startClientButton.disabled = state.running || controlActionInFlight()
+  stopClientButton.disabled = !state.running || controlActionInFlight()
   startClientButton.classList.toggle('primary-action', !state.running)
   startClientButton.classList.toggle('secondary', state.running)
   stopClientButton.classList.toggle('primary-action', state.running)
@@ -307,8 +313,13 @@ function renderTunState(state: TunState) {
   statusTun.textContent = `TUN：${enabled ? statusLabel : '未启用'}`
   statusTun.className = `status-item ${state.running ? 'status-ok' : enabled ? 'status-warn' : ''}`.trim()
   downloadTunHelperButton.disabled = state.running || downloadingTunHelper
-  startTunButton.disabled = !enabled || state.running
-  stopTunButton.disabled = !state.running
+  startTunButton.disabled = !enabled || state.running || controlActionInFlight()
+  stopTunButton.disabled = !state.running || controlActionInFlight()
+  if (state.running && testResult.textContent === 'TUN 已停止。') {
+    testResult.textContent = 'TUN 已启动。'
+  } else if (!state.running && testResult.textContent === 'TUN 已启动。') {
+    testResult.textContent = 'TUN 已停止。'
+  }
   updateStatusPolling()
   updateLogPolling()
 }
@@ -333,7 +344,7 @@ function toErrorMessage(error: unknown): string {
     return '连接超时，请检查本地代理状态、证书和服务端可达性。'
   }
   if (text.includes('No such file') || text.includes('not found')) {
-    return '未找到所需文件，请检查客户端核心程序、配置文件或证书文件是否存在。'
+    return text
   }
   if (text.includes('Permission denied')) {
     return '权限不足，请检查程序和目标目录的访问权限。'
@@ -369,8 +380,8 @@ function renderOnboarding(config: ClientConfig, paths: RuntimePaths) {
 
   const canStart = state.serverAddrReady && state.certReady
   importCertButton.classList.toggle('attention-action', !state.certReady)
-  startClientButton.disabled = !canStart
-  startTunButton.disabled = !canStart || !fields.tun_enabled.checked || currentTunState?.running === true
+  startClientButton.disabled = !canStart || controlActionInFlight()
+  startTunButton.disabled = !canStart || !fields.tun_enabled.checked || currentTunState?.running === true || controlActionInFlight()
   runTestButton.disabled = !canStart
   renderConnectivityAction()
 }
@@ -532,6 +543,10 @@ document.querySelector<HTMLButtonElement>('#import-cert')!.addEventListener('cli
 
 document.querySelector<HTMLButtonElement>('#start-client')!.addEventListener('click', async () => {
   try {
+    clientActionInFlight = true
+    if (currentRuntimeState) renderState(currentRuntimeState)
+    if (currentTunState) renderTunState(currentTunState)
+    testResult.textContent = '正在启动客户端...'
     if (failValidation()) return
     await saveConfig()
     const paths = await refreshPaths()
@@ -545,16 +560,32 @@ document.querySelector<HTMLButtonElement>('#start-client')!.addEventListener('cl
     testResult.textContent = '配置已保存，客户端已启动。'
   } catch (error) {
     testResult.textContent = toErrorMessage(error)
+  } finally {
+    clientActionInFlight = false
+    if (currentRuntimeState) renderState(currentRuntimeState)
+    if (currentTunState) renderTunState(currentTunState)
   }
 })
 
 document.querySelector<HTMLButtonElement>('#stop-client')!.addEventListener('click', async () => {
-  const state = await invoke<RuntimeState>('stop_client')
-  connectivityTestPending = false
-  renderState(state)
-  await refreshTunState()
-  await refreshLogs()
-  testResult.textContent = '客户端已停止。'
+  try {
+    clientActionInFlight = true
+    if (currentRuntimeState) renderState(currentRuntimeState)
+    if (currentTunState) renderTunState(currentTunState)
+    testResult.textContent = '正在停止客户端...'
+    const state = await invoke<RuntimeState>('stop_client')
+    connectivityTestPending = false
+    renderState(state)
+    await refreshTunState()
+    await refreshLogs()
+    testResult.textContent = '客户端已停止。'
+  } catch (error) {
+    testResult.textContent = toErrorMessage(error)
+  } finally {
+    clientActionInFlight = false
+    if (currentRuntimeState) renderState(currentRuntimeState)
+    if (currentTunState) renderTunState(currentTunState)
+  }
 })
 
 document.querySelector<HTMLButtonElement>('#download-tun-helper')!.addEventListener('click', async () => {
@@ -577,6 +608,10 @@ document.querySelector<HTMLButtonElement>('#download-tun-helper')!.addEventListe
 
 document.querySelector<HTMLButtonElement>('#start-tun')!.addEventListener('click', async () => {
   try {
+    tunActionInFlight = true
+    if (currentRuntimeState) renderState(currentRuntimeState)
+    if (currentTunState) renderTunState(currentTunState)
+    testResult.textContent = '正在启动 TUN...'
     if (failValidation()) return
     await saveConfig()
     const state = await invoke<TunState>('start_tun')
@@ -585,17 +620,29 @@ document.querySelector<HTMLButtonElement>('#start-tun')!.addEventListener('click
     testResult.textContent = 'TUN 已启动。'
   } catch (error) {
     testResult.textContent = toErrorMessage(error)
+  } finally {
+    tunActionInFlight = false
+    if (currentRuntimeState) renderState(currentRuntimeState)
+    if (currentTunState) renderTunState(currentTunState)
   }
 })
 
 document.querySelector<HTMLButtonElement>('#stop-tun')!.addEventListener('click', async () => {
   try {
+    tunActionInFlight = true
+    if (currentRuntimeState) renderState(currentRuntimeState)
+    if (currentTunState) renderTunState(currentTunState)
+    testResult.textContent = '正在停止 TUN...'
     const state = await invoke<TunState>('stop_tun')
     renderTunState(state)
     await refreshState()
     testResult.textContent = 'TUN 已停止。'
   } catch (error) {
     testResult.textContent = toErrorMessage(error)
+  } finally {
+    tunActionInFlight = false
+    if (currentRuntimeState) renderState(currentRuntimeState)
+    if (currentTunState) renderTunState(currentTunState)
   }
 })
 
