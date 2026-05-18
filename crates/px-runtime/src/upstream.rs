@@ -13,11 +13,12 @@ use rustls::{
     CertificateError, ClientConfig as RustlsClientConfig, DigitallySignedStruct, Error,
     RootCertStore, SignatureScheme,
 };
-use socket2::{SockRef, TcpKeepalive};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector;
+
+use crate::socket::apply_socket_options;
 
 #[derive(Clone)]
 pub struct UpstreamConnector {
@@ -76,14 +77,6 @@ fn load_certs(path: &str) -> Result<Vec<CertificateDer<'static>>> {
         .collect::<std::result::Result<Vec<_>, _>>()
         .context("failed to parse pinned cert")?;
     Ok(certs)
-}
-
-fn apply_socket_options(stream: &TcpStream) -> Result<()> {
-    stream.set_nodelay(true)?;
-    let sock = SockRef::from(stream);
-    let keepalive = TcpKeepalive::new().with_time(Duration::from_secs(30));
-    sock.set_tcp_keepalive(&keepalive)?;
-    Ok(())
 }
 
 #[derive(Debug)]

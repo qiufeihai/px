@@ -32,7 +32,7 @@ type TunState = {
   message: string
 }
 
-type DownloadTunHelperResult = {
+type RepairTunHelperResult = {
   helper_path: string
   wintun_path: string | null
   message: string
@@ -96,7 +96,7 @@ app.innerHTML = `
         <div class="grid">
           <label>
             <span>Helper 路径</span>
-            <input id="tun_helper_path" placeholder="bin/tun2socks" />
+            <input id="tun_helper_path" placeholder="bin/px-tun-helper" />
           </label>
           <label>
             <span>TUN 网卡名</span>
@@ -116,7 +116,7 @@ app.innerHTML = `
           </label>
         </div>
         <div class="actions compact-actions">
-          <button id="download-tun-helper" class="secondary">下载 helper</button>
+          <button id="repair-tun-helper" class="secondary">修复 helper</button>
           <button id="start-tun" class="secondary">启动 TUN</button>
           <button id="stop-tun" class="secondary">停止 TUN</button>
         </div>
@@ -182,7 +182,7 @@ const importCertButton = document.querySelector<HTMLButtonElement>('#import-cert
 const saveConfigButton = document.querySelector<HTMLButtonElement>('#save-config')!
 const startClientButton = document.querySelector<HTMLButtonElement>('#start-client')!
 const stopClientButton = document.querySelector<HTMLButtonElement>('#stop-client')!
-const downloadTunHelperButton = document.querySelector<HTMLButtonElement>('#download-tun-helper')!
+const repairTunHelperButton = document.querySelector<HTMLButtonElement>('#repair-tun-helper')!
 const startTunButton = document.querySelector<HTMLButtonElement>('#start-tun')!
 const stopTunButton = document.querySelector<HTMLButtonElement>('#stop-tun')!
 const runTestButton = document.querySelector<HTMLButtonElement>('#run-test')!
@@ -190,7 +190,7 @@ let lastSavedConfig: ClientConfig | null = null
 let currentRuntimeState: RuntimeState | null = null
 let currentRuntimePaths: RuntimePaths | null = null
 let currentTunState: TunState | null = null
-let downloadingTunHelper = false
+let repairingTunHelper = false
 let connectivityTestPending = false
 let clientActionInFlight = false
 let tunActionInFlight = false
@@ -312,7 +312,7 @@ function renderTunState(state: TunState) {
   const statusLabel = state.running ? '运行中' : '未启动'
   statusTun.textContent = `TUN：${enabled ? statusLabel : '未启用'}`
   statusTun.className = `status-item ${state.running ? 'status-ok' : enabled ? 'status-warn' : ''}`.trim()
-  downloadTunHelperButton.disabled = state.running || downloadingTunHelper
+  repairTunHelperButton.disabled = state.running || repairingTunHelper
   startTunButton.disabled = !enabled || state.running || controlActionInFlight()
   stopTunButton.disabled = !state.running || controlActionInFlight()
   if (state.running && testResult.textContent === 'TUN 已停止。') {
@@ -332,10 +332,10 @@ function toErrorMessage(error: unknown): string {
   const text = String(error)
 
   if (text.includes('未找到 TUN helper')) {
-    return '未找到 tun2socks。请先点击“下载 helper”，或把 tun2socks 放到当前运行目录的 bin/ 中。'
+    return '未找到 TUN helper。请先点击“修复 helper”，或把 helper 放到当前运行目录的 bin/ 中。'
   }
   if (text.includes('未找到 wintun.dll')) {
-    return '未找到 wintun.dll。请先点击“下载 helper”，或把官方 wintun.dll 放到当前运行目录的 bin/ 中。'
+    return '未找到 wintun.dll。请先点击“修复 helper”，或把官方 wintun.dll 放到当前运行目录的 bin/ 中。'
   }
   if (text.includes('Connection refused')) {
     return '连接被拒绝，请确认客户端已启动，且本地 SOCKS5 地址可访问。'
@@ -422,7 +422,7 @@ async function refreshLogs() {
 }
 
 function shouldPollLogs() {
-  return Boolean(currentRuntimeState?.running || currentTunState?.running || downloadingTunHelper)
+  return Boolean(currentRuntimeState?.running || currentTunState?.running || repairingTunHelper)
 }
 
 function shouldPollStatus() {
@@ -588,12 +588,12 @@ document.querySelector<HTMLButtonElement>('#stop-client')!.addEventListener('cli
   }
 })
 
-document.querySelector<HTMLButtonElement>('#download-tun-helper')!.addEventListener('click', async () => {
+document.querySelector<HTMLButtonElement>('#repair-tun-helper')!.addEventListener('click', async () => {
   try {
-    downloadingTunHelper = true
+    repairingTunHelper = true
     renderTunState(currentTunState ?? { running: false, pid: null, message: 'TUN 未启动' })
-    testResult.textContent = '正在下载 TUN helper...'
-    const result = await invoke<DownloadTunHelperResult>('download_tun_helper_command')
+    testResult.textContent = '正在修复 TUN helper...'
+    const result = await invoke<RepairTunHelperResult>('repair_tun_helper_command')
     fields.tun_helper_path.value = result.helper_path
     await saveConfig()
     await refreshTunState()
@@ -601,7 +601,7 @@ document.querySelector<HTMLButtonElement>('#download-tun-helper')!.addEventListe
   } catch (error) {
     testResult.textContent = toErrorMessage(error)
   } finally {
-    downloadingTunHelper = false
+    repairingTunHelper = false
     renderTunState(currentTunState ?? { running: false, pid: null, message: 'TUN 未启动' })
   }
 })
@@ -619,6 +619,14 @@ document.querySelector<HTMLButtonElement>('#start-tun')!.addEventListener('click
     await refreshState()
     testResult.textContent = 'TUN 已启动。'
   } catch (error) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1000))
+      await Promise.all([refreshState(), refreshTunState()])
+      if (currentTunState?.running) {
+        testResult.textContent = 'TUN 已启动。'
+        return
+      }
+    }
     testResult.textContent = toErrorMessage(error)
   } finally {
     tunActionInFlight = false

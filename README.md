@@ -14,19 +14,34 @@
 - 服务端：Rust
 - 客户端：Tauri 中文 GUI
 - 传输：`TCP + TLS 1.3`
-- 首版范围：只支持 TCP，不支持 UDP；TUN 通过外部 helper 接到本地 SOCKS5
+- 首版范围：只支持 TCP，不支持 UDP；TUN 通过外部 helper 接到本地 ingress
 
 当前链路：
 
 ```text
+非 TUN:
 浏览器 / 应用
-  -> 可选 TUN helper
   -> 本地 SOCKS5
   -> PX 共享 runtime
   -> TLS 加密隧道
   -> px-server
   -> 目标 TCP 服务
+
+TUN:
+系统 TCP 流量
+  -> 外部 helper
+  -> 本地 ingress
+  -> PX 共享 runtime
+  -> TLS 加密隧道
+  -> px-server
+  -> 目标 TCP 服务
 ```
+
+补充说明：
+
+- 非 TUN 主路径继续保留本地 SOCKS5
+- TUN 专用路径已经收口为 `helper -> ingress -> runtime`
+- 旧的本地 SOCKS5 bridge 过渡链与手写 Rust helper 已删除，不再维护
 
 ## 为什么这样做
 
@@ -89,6 +104,7 @@
 - Rocky9 部署：[rocky9-deploy.md](file:///Users/qiufeihai/workspace/px/docs/rocky9-deploy.md)
 - GUI 打包与发布：[client-packaging.md](file:///Users/qiufeihai/workspace/px/docs/client-packaging.md)，workflow: [px-release.yml](file:///Users/qiufeihai/workspace/px/.github/workflows/px-release.yml)
 - 私有协议说明：[protocol.md](file:///Users/qiufeihai/workspace/px/docs/protocol.md)
+- TUN helper 设计稿：[tun-helper-design.md](file:///Users/qiufeihai/workspace/px/docs/tun-helper-design.md)
 - AI 开发规则：[AGENTS.md](file:///Users/qiufeihai/workspace/px/AGENTS.md)
 
 ## 当前边界

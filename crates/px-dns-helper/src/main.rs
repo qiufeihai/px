@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
+use px_proto::{ConnectRequest, ConnectResponse, StatusCode, TargetAddr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::timeout;
@@ -10,9 +11,15 @@ use tokio::time::timeout;
 #[derive(Clone)]
 struct Config {
     listen_addr: SocketAddr,
-    socks_addr: SocketAddr,
+    proxy: ProxyEndpoint,
     upstreams: Vec<SocketAddr>,
     timeout: Duration,
+}
+
+#[derive(Clone, Copy)]
+enum ProxyEndpoint {
+    Socks5(SocketAddr),
+    Ingress(SocketAddr),
 }
 
 #[tokio::main]
@@ -24,7 +31,7 @@ async fn main() -> Result<()> {
 impl Config {
     fn from_args() -> Result<Self> {
         let mut listen_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 53));
-        let mut socks_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 7777));
+        let mut proxy = ProxyEndpoint::Socks5(SocketAddr::from((Ipv4Addr::LOCALHOST, 7777)));
         let mut upstreams = Vec::new();
         let mut timeout = Duration::from_secs(5);
 
@@ -37,7 +44,12 @@ impl Config {
                 }
                 "--socks" => {
                     let value = args.next().context("missing value for --socks")?;
-                    socks_addr = value.parse().context("invalid --socks address")?;
+                    let socks_addr = value.parse().context("invalid --socks address")?;
+                    proxy = ProxyEndpoint::Socks5(socks_addr);
+                }
+                "--proxy" => {
+                    let value = args.next().context("missing value for --proxy")?;
+                    proxy = parse_proxy_endpoint(&value)?;
                 }
                 "--upstream" => {
                     let value = args.next().context("missing value for --upstream")?;
@@ -58,7 +70,7 @@ impl Config {
 
         Ok(Self {
             listen_addr,
-            socks_addr,
+            proxy,
             upstreams,
             timeout,
         })
@@ -103,7 +115,7 @@ async fn handle_query(
 async fn resolve_with_fallback(query: &[u8], config: &Config) -> Result<Vec<u8>> {
     let mut last_error = None;
     for upstream in &config.upstreams {
-        match timeout(config.timeout, resolve_once(query, config.socks_addr, *upstream)).await {
+        match timeout(config.timeout, resolve_once(query, config.proxy, *upstream)).await {
             Ok(Ok(response)) => return Ok(response),
             Ok(Err(error)) => last_error = Some(error),
             Err(error) => last_error = Some(error.into()),
@@ -115,13 +127,25 @@ async fn resolve_with_fallback(query: &[u8], config: &Config) -> Result<Vec<u8>>
 
 async fn resolve_once(
     query: &[u8],
-    socks_addr: SocketAddr,
+    proxy: ProxyEndpoint,
     upstream_addr: SocketAddr,
 ) -> Result<Vec<u8>> {
-    let mut stream = TcpStream::connect(socks_addr)
-        .await
-        .with_context(|| format!("failed to connect socks {socks_addr}"))?;
-    socks5_connect(&mut stream, upstream_addr).await?;
+    let mut stream = match proxy {
+        ProxyEndpoint::Socks5(socks_addr) => {
+            let mut stream = TcpStream::connect(socks_addr)
+                .await
+                .with_context(|| format!("failed to connect socks {socks_addr}"))?;
+            socks5_connect(&mut stream, upstream_addr).await?;
+            stream
+        }
+        ProxyEndpoint::Ingress(ingress_addr) => {
+            let mut stream = TcpStream::connect(ingress_addr)
+                .await
+                .with_context(|| format!("failed to connect ingress {ingress_addr}"))?;
+            ingress_connect(&mut stream, upstream_addr).await?;
+            stream
+        }
+    };
 
     let length = u16::try_from(query.len()).context("dns query too large")?;
     stream.write_u16(length).await?;
@@ -179,4 +203,30 @@ async fn socks5_connect(stream: &mut TcpStream, target: SocketAddr) -> Result<()
     }
 
     Ok(())
+}
+
+async fn ingress_connect(stream: &mut TcpStream, target: SocketAddr) -> Result<()> {
+    let request = ConnectRequest {
+        target: TargetAddr::Ip(target.ip()),
+        port: target.port(),
+    };
+    request.write_to(stream).await?;
+
+    let response = ConnectResponse::read_from(stream).await?;
+    if response.status != StatusCode::Ok {
+        bail!("ingress connect failed with status {:?}", response.status);
+    }
+    Ok(())
+}
+
+fn parse_proxy_endpoint(value: &str) -> Result<ProxyEndpoint> {
+    let (scheme, addr) = value
+        .split_once("://")
+        .context("invalid --proxy value, expected scheme://host:port")?;
+    let addr: SocketAddr = addr.parse().context("invalid --proxy address")?;
+    match scheme {
+        "socks5" => Ok(ProxyEndpoint::Socks5(addr)),
+        "ingress" => Ok(ProxyEndpoint::Ingress(addr)),
+        _ => bail!("unsupported --proxy scheme: {scheme}"),
+    }
 }

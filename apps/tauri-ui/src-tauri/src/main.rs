@@ -2,19 +2,22 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
-use px_proto::{load_client_config, save_client_config, ClientConfig, TunConfig};
+use px_proto::{
+    load_client_config, save_client_config, ClientConfig, ConnectRequest, ConnectResponse,
+    StatusCode, TargetAddr, TunConfig,
+};
 use px_runtime::{ClientRuntime, LogCallback};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use std::fs;
 
 struct AppState {
-    runtime: Mutex<Option<ClientRuntime>>,
+    runtime: Mutex<Option<ClientRuntimes>>,
     tun_runtime: Mutex<Option<TunRuntime>>,
     logs: Arc<Mutex<String>>,
 }
@@ -48,6 +51,23 @@ struct TunRuntime {
     runtime_dir: PathBuf,
 }
 
+struct ClientRuntimes {
+    primary: ClientRuntime,
+    ingress: Option<ClientRuntime>,
+}
+
+struct LocalProxyEndpoint {
+    addr: String,
+    helper_proxy_arg: String,
+    display: String,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TunHelperKind {
+    Tun2Socks,
+    PxTunHelper,
+}
+
 enum TunProcess {
     Local(Child),
     Privileged { pid: u32 },
@@ -63,7 +83,7 @@ struct TunRoutePlan {
 }
 
 #[derive(Debug, Serialize)]
-struct DownloadTunHelperResult {
+struct RepairTunHelperResult {
     helper_path: String,
     wintun_path: Option<String>,
     message: String,
@@ -164,7 +184,7 @@ fn clear_runtime_logs_command(state: State<'_, AppState>) -> Result<(), String> 
 }
 
 #[tauri::command]
-async fn download_tun_helper_command(state: State<'_, AppState>) -> Result<DownloadTunHelperResult, String> {
+async fn repair_tun_helper_command(state: State<'_, AppState>) -> Result<RepairTunHelperResult, String> {
     {
         let guard = state.tun_runtime.lock().map_err(|_| "state poisoned".to_string())?;
         if guard.is_some() {
@@ -174,7 +194,7 @@ async fn download_tun_helper_command(state: State<'_, AppState>) -> Result<Downl
 
     let runtime_dir = runtime_dir().map_err(|error| error.to_string())?;
     let logs = state.logs.clone();
-    tokio::task::spawn_blocking(move || run_tun_helper_fetch_script(&runtime_dir, &logs))
+    tokio::task::spawn_blocking(move || run_tun_helper_repair_script(&runtime_dir, &logs))
         .await
         .map_err(|error| error.to_string())?
 }
@@ -182,8 +202,8 @@ async fn download_tun_helper_command(state: State<'_, AppState>) -> Result<Downl
 #[tauri::command]
 fn runtime_state(state: State<'_, AppState>) -> Result<RuntimeState, String> {
     let mut guard = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
-    if let Some(runtime) = guard.as_ref() {
-        if runtime.is_finished() {
+    if let Some(runtimes) = guard.as_mut() {
+        if runtimes.primary.is_finished() {
             *guard = None;
             Ok(RuntimeState {
                 running: false,
@@ -191,6 +211,16 @@ fn runtime_state(state: State<'_, AppState>) -> Result<RuntimeState, String> {
                 message: "客户端已退出，请查看最近日志。".to_string(),
             })
         } else {
+            if let Some(ingress) = runtimes.ingress.as_ref() {
+                if ingress.is_finished() {
+                    runtimes.ingress = None;
+                    append_log_line(
+                        &state.logs,
+                        "runtime",
+                        "预留 ingress listener 已退出，当前仍保留 SOCKS5 主路径。",
+                    );
+                }
+            }
             Ok(RuntimeState {
                 running: true,
                 pid: None,
@@ -259,20 +289,31 @@ async fn start_client(state: State<'_, AppState>) -> Result<RuntimeState, String
     let config_path = client_config_path().map_err(|error| error.to_string())?;
     let config = validate_client_start(&runtime_dir, &config_path)?;
     clear_logs(&state.logs)?;
-    let logger = build_log_callback(state.logs.clone());
-    let runtime = ClientRuntime::start(config.clone(), Some(logger))
-        .await
-        .map_err(|error| translate_runtime_start_error(&error, &config.local_socks_addr))?;
+    let runtimes = start_default_client_runtimes(state.logs.clone(), config.clone()).await?;
 
-    let mut guard = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
-    if guard.is_some() {
+    let mut pending_runtimes = Some(runtimes);
+    let already_running = {
+        let mut guard = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+        if guard.is_some() {
+            true
+        } else {
+            *guard = pending_runtimes.take();
+            false
+        }
+    };
+    if already_running {
+        stop_client_runtimes(
+            pending_runtimes
+                .take()
+                .ok_or_else(|| "state poisoned".to_string())?,
+        )
+        .await?;
         return Ok(RuntimeState {
             running: true,
             pid: None,
             message: "客户端已在运行".to_string(),
         });
     }
-    *guard = Some(runtime);
     Ok(RuntimeState {
         running: true,
         pid: None,
@@ -286,13 +327,13 @@ async fn stop_client(state: State<'_, AppState>) -> Result<RuntimeState, String>
         append_log_line(&state.logs, "tun", &format!("停止客户端前清理 TUN 失败: {error}"));
     }
 
-    let runtime = {
+    let runtimes = {
         let mut guard = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
         guard.take()
     };
 
-    if let Some(runtime) = runtime {
-        runtime.stop().await.map_err(|error| error.to_string())?;
+    if let Some(runtimes) = runtimes {
+        stop_client_runtimes(runtimes).await?;
         Ok(RuntimeState {
             running: false,
             pid: None,
@@ -325,6 +366,7 @@ async fn start_tun(state: State<'_, AppState>) -> Result<TunState, String> {
     let config = validate_client_start(&runtime_dir, &config_path)?;
     let route_plan = validate_tun_start(&runtime_dir, &config)?;
     ensure_client_runtime_running(&state, &config).await?;
+    ensure_tun_ingress_ready(&state, &runtime_dir, &config)?;
 
     let process = if cfg!(target_os = "macos") {
         let runtime_dir_for_task = runtime_dir.clone();
@@ -409,12 +451,13 @@ async fn stop_tun(state: State<'_, AppState>) -> Result<TunState, String> {
 async fn test_proxy_connectivity() -> Result<String, String> {
     let config_path = client_config_path().map_err(|error| error.to_string())?;
     let config = load_client_config(&config_path).map_err(|_| "读取客户端配置失败，请先保存配置。".to_string())?;
+    let proxy = current_local_proxy_endpoint(&config);
     let timeout = Duration::from_secs(5);
-    let mut stream = tokio::time::timeout(timeout, tokio::net::TcpStream::connect(&config.local_socks_addr))
+    let mut stream = tokio::time::timeout(timeout, tokio::net::TcpStream::connect(&proxy.addr))
         .await
         .map_err(|_| "连接本地 SOCKS5 超时".to_string())
         .and_then(|result| {
-            result.map_err(|error| translate_socks_connect_error(&error, &config.local_socks_addr))
+            result.map_err(|error| translate_socks_connect_error(&error, &proxy.addr))
         })?;
 
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -535,10 +578,11 @@ fn validate_tun_start(runtime_dir: &Path, config: &ClientConfig) -> Result<TunRo
     let helper_path = resolve_runtime_path(runtime_dir, &config.tun.helper_path);
     if !helper_path.exists() {
         return Err(format!(
-            "未找到 TUN helper: {}。请先点击“下载 helper”，或把 tun2socks 放到当前运行目录的 bin/ 中。",
+            "未找到 TUN helper: {}。请先点击“修复 helper”，或把 helper 放到当前运行目录的 bin/ 中。",
             helper_path.display()
         ));
     }
+    let helper_kind = detect_tun_helper_kind(&helper_path);
     if cfg!(target_os = "windows") {
         let wintun_path = helper_path
             .parent()
@@ -546,7 +590,7 @@ fn validate_tun_start(runtime_dir: &Path, config: &ClientConfig) -> Result<TunRo
             .join("wintun.dll");
         if !wintun_path.exists() {
             return Err(format!(
-                "未找到 wintun.dll: {}。请先点击“下载 helper”，或把官方 wintun.dll 放到当前运行目录的 bin/ 中。",
+                "未找到 wintun.dll: {}。请先点击“修复 helper”，或把官方 wintun.dll 放到当前运行目录的 bin/ 中。",
                 wintun_path.display()
             ));
         }
@@ -562,6 +606,11 @@ fn validate_tun_start(runtime_dir: &Path, config: &ClientConfig) -> Result<TunRo
     } else {
         config.tun.primary_interface.trim().to_string()
     };
+    if helper_kind == TunHelperKind::PxTunHelper {
+        if cfg!(target_os = "macos") && !is_explicit_utun_name(&config.tun.device_name) {
+            return Err("px-tun-helper 当前要求显式 utun 设备名，例如 utun233，避免真实设备与路由清理错位。".to_string());
+        }
+    }
 
     Ok(TunRoutePlan {
         device_name: config.tun.device_name.trim().to_string(),
@@ -580,16 +629,184 @@ async fn ensure_client_runtime_running(state: &State<'_, AppState>, config: &Cli
         }
     }
 
-    let logger = build_log_callback(state.logs.clone());
-    let runtime = ClientRuntime::start(config.clone(), Some(logger))
-        .await
-        .map_err(|error| translate_runtime_start_error(&error, &config.local_socks_addr))?;
+    let runtimes = start_default_client_runtimes(state.logs.clone(), config.clone()).await?;
 
-    let mut guard = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
-    if guard.is_none() {
-        *guard = Some(runtime);
+    let mut pending_runtimes = Some(runtimes);
+    let already_running = {
+        let mut guard = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+        if guard.is_none() {
+            *guard = pending_runtimes.take();
+            false
+        } else {
+            true
+        }
+    };
+    if already_running {
+        stop_client_runtimes(
+            pending_runtimes
+                .take()
+                .ok_or_else(|| "state poisoned".to_string())?,
+        )
+        .await?;
     }
     Ok(())
+}
+
+fn ensure_tun_ingress_ready(
+    state: &State<'_, AppState>,
+    runtime_dir: &Path,
+    config: &ClientConfig,
+) -> Result<(), String> {
+    let helper_path = resolve_runtime_path(runtime_dir, &config.tun.helper_path);
+    if detect_tun_helper_kind(&helper_path) != TunHelperKind::PxTunHelper {
+        return Ok(());
+    }
+
+    let guard = state.runtime.lock().map_err(|_| "state poisoned".to_string())?;
+    let ingress_ready = guard
+        .as_ref()
+        .and_then(|runtimes| runtimes.ingress.as_ref())
+        .map(|ingress| !ingress.is_finished())
+        .unwrap_or(false);
+    if ingress_ready {
+        return Ok(());
+    }
+
+    Err("px-tun-helper 需要本地预留 ingress listener，但当前 ingress 未启动，请先重启客户端。".to_string())
+}
+
+async fn stop_client_runtimes(runtimes: ClientRuntimes) -> Result<(), String> {
+    if let Some(ingress) = runtimes.ingress {
+        ingress.stop().await.map_err(|error| error.to_string())?;
+    }
+    runtimes
+        .primary
+        .stop()
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn spawn_shadow_ingress_probe(logs: Arc<Mutex<String>>, ingress_addr: String) {
+    tokio::spawn(async move {
+        match probe_shadow_ingress(&ingress_addr).await {
+            Ok(()) => append_log_line(
+                &logs,
+                "runtime",
+                &format!("预留 ingress 自检成功: {ingress_addr} -> example.com:80"),
+            ),
+            Err(error) => append_log_line(
+                &logs,
+                "runtime",
+                &format!(
+                    "预留 ingress 自检失败，不影响当前 SOCKS5 主路径: {ingress_addr}: {error}"
+                ),
+            ),
+        }
+    });
+}
+
+async fn probe_shadow_ingress(ingress_addr: &str) -> Result<(), String> {
+    probe_ingress_target(ingress_addr, "example.com", 80).await
+}
+
+async fn probe_ingress_target(ingress_addr: &str, host: &str, port: u16) -> Result<(), String> {
+    let timeout = Duration::from_secs(5);
+    let mut stream = tokio::time::timeout(timeout, tokio::net::TcpStream::connect(ingress_addr))
+        .await
+        .map_err(|_| format!("连接预留 ingress 超时: {ingress_addr}"))?
+        .map_err(|error| format!("连接预留 ingress 失败 {ingress_addr}: {error}"))?;
+
+    let request = ConnectRequest {
+        target: TargetAddr::Domain(host.to_string()),
+        port,
+    };
+    request
+        .write_to(&mut stream)
+        .await
+        .map_err(|error| format!("写入 ingress 请求失败: {error}"))?;
+
+    let response = ConnectResponse::read_from(&mut stream)
+        .await
+        .map_err(|error| format!("读取 ingress 响应失败: {error}"))?;
+
+    if response.status != StatusCode::Ok {
+        return Err(format!(
+            "ingress 返回状态 {:?}，reason={}, target={host}:{port}",
+            response.status, response.reason
+        ));
+    }
+
+    Ok(())
+}
+
+async fn start_default_client_runtimes(
+    logs: Arc<Mutex<String>>,
+    config: ClientConfig,
+) -> Result<ClientRuntimes, String> {
+    let proxy = current_local_proxy_endpoint(&config);
+    let ingress_addr = suggested_ingress_bind_addr(&config);
+    append_log_line(
+        &logs,
+        "runtime",
+        &format!(
+            "默认本地入口: {}；预留 ingress: {}",
+            proxy.display,
+            ingress_addr
+        ),
+    );
+    let logger = build_log_callback(logs.clone());
+    let primary = ClientRuntime::start_socks5(config.clone(), Some(logger))
+        .await
+        .map_err(|error| translate_runtime_start_error(&error, &proxy.addr))?;
+
+    let ingress = match ClientRuntime::start_ingress(
+        &ingress_addr,
+        config,
+        Some(build_log_callback(logs.clone())),
+    )
+    .await
+    {
+        Ok(runtime) => {
+            append_log_line(
+                &logs,
+                "runtime",
+                &format!("预留 ingress listener 已启动: {ingress_addr}"),
+            );
+            spawn_shadow_ingress_probe(logs.clone(), ingress_addr.clone());
+            Some(runtime)
+        }
+        Err(error) => {
+            append_log_line(
+                &logs,
+                "runtime",
+                &format!(
+                    "预留 ingress listener 启动失败，继续保持 SOCKS5 主路径: {ingress_addr}: {error}"
+                ),
+            );
+            None
+        }
+    };
+
+    Ok(ClientRuntimes { primary, ingress })
+}
+
+fn current_local_proxy_endpoint(config: &ClientConfig) -> LocalProxyEndpoint {
+    let addr = config.local_socks_addr.clone();
+    let helper_proxy_arg = format!("socks5://{addr}");
+    LocalProxyEndpoint {
+        addr,
+        display: helper_proxy_arg.clone(),
+        helper_proxy_arg,
+    }
+}
+
+fn suggested_ingress_bind_addr(config: &ClientConfig) -> String {
+    match config.local_socks_addr.parse::<SocketAddr>() {
+        Ok(addr) if addr.port() < u16::MAX => SocketAddr::new(addr.ip(), addr.port() + 1).to_string(),
+        Ok(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7778).to_string(),
+        Err(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7778).to_string(),
+    }
 }
 
 fn tun_helper_log_path(runtime_dir: &Path) -> PathBuf {
@@ -598,6 +815,22 @@ fn tun_helper_log_path(runtime_dir: &Path) -> PathBuf {
 
 fn tun_helper_pid_path(runtime_dir: &Path) -> PathBuf {
     runtime_dir.join("logs/tun-helper.pid")
+}
+
+fn read_running_pid_from_file(pid_path: &Path) -> Result<Option<u32>, String> {
+    if !pid_path.exists() {
+        return Ok(None);
+    }
+    let pid_text = fs::read_to_string(pid_path).map_err(|error| error.to_string())?;
+    let pid = pid_text
+        .trim()
+        .parse::<u32>()
+        .map_err(|_| format!("无效的 TUN pid 文件: {}", pid_path.display()))?;
+    if is_process_running(pid) {
+        Ok(Some(pid))
+    } else {
+        Ok(None)
+    }
 }
 
 fn resolve_runtime_path(runtime_dir: &Path, value: &str) -> PathBuf {
@@ -609,6 +842,20 @@ fn resolve_runtime_path(runtime_dir: &Path, value: &str) -> PathBuf {
     }
 }
 
+fn detect_tun_helper_kind(path: &Path) -> TunHelperKind {
+    match path.file_name().and_then(|name| name.to_str()) {
+        Some("px-tun-helper") | Some("px-tun-helper.exe") => TunHelperKind::PxTunHelper,
+        _ => TunHelperKind::Tun2Socks,
+    }
+}
+
+fn is_explicit_utun_name(device_name: &str) -> bool {
+    device_name
+        .strip_prefix("utun")
+        .map(|suffix| !suffix.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit()))
+        .unwrap_or(false)
+}
+
 fn spawn_local_tun_helper(
     runtime_dir: &Path,
     config: &ClientConfig,
@@ -616,6 +863,7 @@ fn spawn_local_tun_helper(
     logs: &Arc<Mutex<String>>,
 ) -> Result<Child, String> {
     let helper_path = resolve_runtime_path(runtime_dir, &config.tun.helper_path);
+    let helper_kind = detect_tun_helper_kind(&helper_path);
     let helper_log_path = tun_helper_log_path(runtime_dir);
     if let Some(parent) = helper_log_path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -627,18 +875,44 @@ fn spawn_local_tun_helper(
         .map_err(|error| error.to_string())?;
     let stderr = stdout.try_clone().map_err(|error| error.to_string())?;
     let mut command = Command::new(&helper_path);
+    command.current_dir(runtime_dir);
+    let helper_target_display = match helper_kind {
+        TunHelperKind::PxTunHelper => {
+            let ingress_addr = suggested_ingress_bind_addr(config);
+            command
+                .arg("-device")
+                .arg(&config.tun.device_name)
+                .arg("-tun-ipv4")
+                .arg(&config.tun.ipv4_addr)
+                .arg("-ingress")
+                .arg(&ingress_addr)
+                .arg("-primary-interface")
+                .arg(primary_interface)
+                .arg("-mtu")
+                .arg(config.tun.mtu.to_string())
+                .arg("-connect-timeout-ms")
+                .arg(config.connect_timeout_ms.to_string())
+                .arg("-log-level")
+                .arg(map_tun_log_level(&config.log_level));
+            format!("ingress://{ingress_addr}")
+        }
+        TunHelperKind::Tun2Socks => {
+            let proxy = current_local_proxy_endpoint(config);
+            command
+                .arg("-device")
+                .arg(&config.tun.device_name)
+                .arg("-proxy")
+                .arg(&proxy.helper_proxy_arg)
+                .arg("-interface")
+                .arg(primary_interface)
+                .arg("-mtu")
+                .arg(config.tun.mtu.to_string())
+                .arg("-loglevel")
+                .arg(map_tun_log_level(&config.log_level));
+            proxy.display
+        }
+    };
     command
-        .current_dir(runtime_dir)
-        .arg("-device")
-        .arg(&config.tun.device_name)
-        .arg("-proxy")
-        .arg(format!("socks5://{}", config.local_socks_addr))
-        .arg("-interface")
-        .arg(primary_interface)
-        .arg("-mtu")
-        .arg(config.tun.mtu.to_string())
-        .arg("-loglevel")
-        .arg(map_tun_log_level(&config.log_level))
         .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
@@ -648,9 +922,9 @@ fn spawn_local_tun_helper(
         logs,
         "tun",
         &format!(
-            "已启动 helper: {} -> socks5://{} ({})，日志: {}",
+            "已启动 helper: {} -> {} ({})，日志: {}",
             helper_path.display(),
-            config.local_socks_addr,
+            helper_target_display,
             format_tun_summary(&config.tun),
             helper_log_path.display()
         ),
@@ -664,7 +938,21 @@ fn start_macos_privileged_tun(
     route_plan: &TunRoutePlan,
     logs: &Arc<Mutex<String>>,
 ) -> Result<TunProcess, String> {
+    let proxy = current_local_proxy_endpoint(config);
     let helper_path = resolve_runtime_path(runtime_dir, &config.tun.helper_path);
+    let helper_kind = detect_tun_helper_kind(&helper_path);
+    let proxy_mode = match helper_kind {
+        TunHelperKind::PxTunHelper => "ingress".to_string(),
+        TunHelperKind::Tun2Socks => "socks5".to_string(),
+    };
+    let proxy_addr = match helper_kind {
+        TunHelperKind::PxTunHelper => suggested_ingress_bind_addr(config),
+        TunHelperKind::Tun2Socks => proxy.addr.clone(),
+    };
+    let helper_target_display = match helper_kind {
+        TunHelperKind::PxTunHelper => format!("ingress://{proxy_addr}"),
+        TunHelperKind::Tun2Socks => proxy.display.clone(),
+    };
     let dns_helper_path = resolve_macos_dns_helper(runtime_dir)?;
     let helper_log_path = tun_helper_log_path(runtime_dir);
     let helper_pid_path = tun_helper_pid_path(runtime_dir);
@@ -685,13 +973,14 @@ fn start_macos_privileged_tun(
         ),
     );
 
-    let output = run_macos_privileged_command(&[
+    let output = match run_macos_privileged_command(&[
         "/bin/bash".to_string(),
         script_path.display().to_string(),
         "start".to_string(),
         helper_path.display().to_string(),
         dns_helper_path.display().to_string(),
-        config.local_socks_addr.clone(),
+        proxy_mode,
+        proxy_addr,
         config.tun.device_name.clone(),
         route_plan.primary_interface.clone(),
         config.tun.mtu.to_string(),
@@ -701,7 +990,24 @@ fn start_macos_privileged_tun(
         route_plan.server_ip.clone(),
         helper_log_path.display().to_string(),
         helper_pid_path.display().to_string(),
-    ])?;
+    ]) {
+        Ok(output) => output,
+        Err(error) => {
+            std::thread::sleep(Duration::from_millis(1200));
+            if let Some(pid) = read_running_pid_from_file(&helper_pid_path)? {
+                append_log_line(
+                    logs,
+                    "tun",
+                    &format!(
+                        "管理员权限脚本返回异常，但 helper 已成功启动，按成功处理。pid={} error={}",
+                        pid, error
+                    ),
+                );
+                return Ok(TunProcess::Privileged { pid });
+            }
+            return Err(error);
+        }
+    };
     let pid = output
         .trim()
         .parse::<u32>()
@@ -717,9 +1023,9 @@ fn start_macos_privileged_tun(
         logs,
         "tun",
         &format!(
-            "已通过管理员权限启动 helper: {} -> socks5://{} ({})，日志: {}",
+            "已通过管理员权限启动 helper: {} -> {} ({})，日志: {}",
             helper_path.display(),
-            config.local_socks_addr,
+            helper_target_display,
             format_tun_summary(&config.tun),
             helper_log_path.display()
         ),
@@ -729,7 +1035,9 @@ fn start_macos_privileged_tun(
 
 fn helper_relative_path() -> &'static str {
     if cfg!(target_os = "windows") {
-        "bin/tun2socks.exe"
+        "bin/px-tun-helper.exe"
+    } else if cfg!(target_os = "macos") {
+        "bin/px-tun-helper"
     } else {
         "bin/tun2socks"
     }
@@ -743,12 +1051,23 @@ fn dns_helper_relative_path() -> &'static str {
     }
 }
 
-fn run_tun_helper_fetch_script(runtime_dir: &Path, logs: &Arc<Mutex<String>>) -> Result<DownloadTunHelperResult, String> {
-    let script_path = resolve_fetch_tun_helper_script(runtime_dir)?;
+fn run_tun_helper_repair_script(runtime_dir: &Path, logs: &Arc<Mutex<String>>) -> Result<RepairTunHelperResult, String> {
     let bin_dir = runtime_dir.join("bin");
     fs::create_dir_all(&bin_dir).map_err(|error| error.to_string())?;
+    let helper_path = bin_dir.join(Path::new(helper_relative_path()).file_name().unwrap_or_default());
+    let script_path = match resolve_repair_tun_helper_script(runtime_dir) {
+        Ok(path) => path,
+        Err(error) => {
+            if cfg!(target_os = "macos") {
+                return Err(format!(
+                    "{error} macOS 正式发布包默认已自带 px-tun-helper；若当前缺失，请重新解压发布包。"
+                ));
+            }
+            return Err(error);
+        }
+    };
 
-    append_log_line(logs, "tun", &format!("开始下载 helper: {}", script_path.display()));
+    append_log_line(logs, "tun", &format!("开始修复 helper: {}", script_path.display()));
     let status = if cfg!(target_os = "windows") {
         Command::new("powershell")
             .args([
@@ -772,18 +1091,20 @@ fn run_tun_helper_fetch_script(runtime_dir: &Path, logs: &Arc<Mutex<String>>) ->
     .map_err(|error| error.to_string())?;
 
     if !status.success() {
-        return Err("下载 helper 失败，请检查网络、脚本权限或下载源可达性。".to_string());
+        if cfg!(target_os = "macos") {
+            return Err("macOS helper 构建或补齐失败。开发环境请执行 scripts/install-dev-px-tun-helper.sh；正式发布包若缺失 helper，请重新解压发布包。".to_string());
+        }
+        return Err("修复 helper 失败，请检查脚本权限、Go 构建环境或下载源可达性。".to_string());
     }
 
-    let helper_path = bin_dir.join(Path::new(helper_relative_path()).file_name().unwrap_or_default());
     if !helper_path.exists() {
-        return Err(format!("下载完成后仍未找到 helper: {}", helper_path.display()));
+        return Err(format!("修复完成后仍未找到 helper: {}", helper_path.display()));
     }
 
     let wintun_path = if cfg!(target_os = "windows") {
         let path = bin_dir.join("wintun.dll");
         if !path.exists() {
-            return Err(format!("下载完成后仍未找到 wintun.dll: {}", path.display()));
+            return Err(format!("修复完成后仍未找到 wintun.dll: {}", path.display()));
         }
         Some("bin/wintun.dll".to_string())
     } else {
@@ -791,21 +1112,25 @@ fn run_tun_helper_fetch_script(runtime_dir: &Path, logs: &Arc<Mutex<String>>) ->
     };
 
     append_log_line(logs, "tun", &format!("helper 已就绪: {}", helper_path.display()));
-    Ok(DownloadTunHelperResult {
+    Ok(RepairTunHelperResult {
         helper_path: helper_relative_path().to_string(),
         wintun_path,
-        message: "TUN helper 已下载到当前运行目录的 bin/。".to_string(),
+        message: "TUN helper 已修复到当前运行目录的 bin/。".to_string(),
     })
 }
 
-fn resolve_fetch_tun_helper_script(runtime_dir: &Path) -> Result<PathBuf, String> {
+fn resolve_repair_tun_helper_script(runtime_dir: &Path) -> Result<PathBuf, String> {
     let script_name = if cfg!(target_os = "windows") {
-        "fetch-tun-helper.ps1"
+        "repair-tun-helper.ps1"
+    } else if cfg!(target_os = "macos") && cfg!(debug_assertions) {
+        "install-dev-px-tun-helper.sh"
     } else {
-        "fetch-tun-helper.sh"
+        return Err(
+            "当前平台不再提供独立 helper 获取脚本；macOS 开发态请使用 install-dev-px-tun-helper.sh，正式发布包缺失 helper 时请重新解压发布包。".to_string()
+        );
     };
     resolve_runtime_script(runtime_dir, script_name).ok_or_else(|| {
-        "未找到 fetch-tun-helper 脚本，请确认当前运行目录是发布目录，或在开发环境从 apps/tauri-ui 启动 GUI。".to_string()
+        format!("未找到 {script_name}，请确认当前运行目录是发布目录，或在开发环境从 apps/tauri-ui 启动 GUI。")
     })
 }
 
@@ -1020,15 +1345,10 @@ fn recover_tun_runtime() -> Result<Option<TunRuntime>, String> {
         return Ok(None);
     }
 
-    let pid_text = fs::read_to_string(&pid_path).map_err(|error| error.to_string())?;
-    let pid = pid_text
-        .trim()
-        .parse::<u32>()
-        .map_err(|_| format!("无效的 TUN pid 文件: {}", pid_path.display()))?;
-    if !is_process_running(pid) {
+    let Some(pid) = read_running_pid_from_file(&pid_path)? else {
         let _ = fs::remove_file(&pid_path);
         return Ok(None);
-    }
+    };
 
     let config_path = client_config_path().map_err(|error| error.to_string())?;
     if !config_path.exists() {
@@ -1283,7 +1603,7 @@ fn main() {
             runtime_paths_command,
             runtime_logs_command,
             clear_runtime_logs_command,
-            download_tun_helper_command,
+            repair_tun_helper_command,
             open_config_dir_command,
             runtime_state,
             tun_state,

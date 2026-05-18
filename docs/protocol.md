@@ -47,3 +47,15 @@ reason   = u16
 - `3 = target_connect_failed`
 - `4 = timeout`
 - `5 = internal_error`
+
+## 本地 ingress 入口
+
+当前 runtime 的本地 `ingress` 入口复用同一套 `ConnectRequest / ConnectResponse` 编码。
+
+这意味着：
+
+- 本地 `SOCKS5` 入口会先把请求翻译成 `ConnectRequest`
+- 本地 `ingress` 入口会直接读取 `ConnectRequest`
+- 后续规划中的 `TCP-only TUN helper` 也应直接复用这套格式，而不是再定义新的本地 connect 协议
+
+相关设计见：[tun-helper-design.md](file:///Users/qiufeihai/workspace/px/docs/tun-helper-design.md)

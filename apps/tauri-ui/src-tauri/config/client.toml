@@ -6,7 +6,7 @@ log_level = "info"
 
 [tun]
 enabled = false
-helper_path = "bin/tun2socks"
+helper_path = "bin/px-tun-helper"
 device_name = "utun233"
 primary_interface = ""
 ipv4_addr = "198.18.0.1"

@@ -30,8 +30,6 @@ if [[ -f "$ROOT_DIR/config/server-key.pem" ]]; then
   cp "$ROOT_DIR/config/server-key.pem" "$OUT_DIR/config/server-key.pem"
 fi
 
-cp "$ROOT_DIR/scripts/fetch-tun-helper.sh" "$OUT_DIR/scripts/fetch-tun-helper.sh"
-
 if [[ -f "$ROOT_DIR/scripts/open-macos-app.sh" ]]; then
   cp "$ROOT_DIR/scripts/open-macos-app.sh" "$OUT_DIR/scripts/open-macos-app.sh"
   chmod +x "$OUT_DIR/scripts/open-macos-app.sh"

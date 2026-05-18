@@ -45,9 +45,16 @@ impl Default for TunConfig {
     fn default() -> Self {
         let (helper_path, device_name, ipv4_addr, mtu) = if cfg!(target_os = "windows") {
             (
-                "bin/tun2socks.exe".to_string(),
+                "bin/px-tun-helper.exe".to_string(),
                 "wintun".to_string(),
                 "192.168.123.1".to_string(),
+                1500,
+            )
+        } else if cfg!(target_os = "macos") {
+            (
+                "bin/px-tun-helper".to_string(),
+                "utun233".to_string(),
+                "198.18.0.1".to_string(),
                 1500,
             )
         } else {

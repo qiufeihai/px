@@ -1,6 +1,5 @@
 param(
   [string]$BinDir = (Join-Path (Get-Location) "bin"),
-  [string]$Tun2socksVersion = "v2.6.0",
   [string]$WintunVersion = "0.14.1",
   [string]$CacheReleaseUrl = "https://github.com/qiufeihai/px/releases/download/tun-helper-cache-v1"
 )
@@ -12,6 +11,8 @@ New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
 
 try {
   New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+  $helperPath = Join-Path $BinDir "px-tun-helper.exe"
+  $helperSourceDir = Join-Path (Split-Path $PSScriptRoot -Parent) "helpers/px-tun-helper"
 
   function Invoke-DownloadWithFallback {
     param(
@@ -32,16 +33,23 @@ try {
     Invoke-WebRequest -Uri $UpstreamUrl -OutFile $OutFile -ConnectionTimeoutSeconds 8
   }
 
-  $tunZip = Join-Path $tmpDir "tun2socks-windows-amd64.zip"
-  $tunUrl = "https://github.com/xjasonlyu/tun2socks/releases/download/$Tun2socksVersion/tun2socks-windows-amd64.zip"
-  Invoke-DownloadWithFallback -AssetName "tun2socks-windows-amd64.zip" -UpstreamUrl $tunUrl -OutFile $tunZip
-  Expand-Archive -Path $tunZip -DestinationPath (Join-Path $tmpDir "tun2socks") -Force
-  $tunExe = Get-ChildItem -Path (Join-Path $tmpDir "tun2socks") -Filter "tun2socks*.exe" | Select-Object -First 1
-  if (-not $tunExe) {
-    throw "tun2socks.exe not found in archive"
+  if (Test-Path (Join-Path $helperSourceDir "go.mod")) {
+    Write-Host "building helper from source: $helperSourceDir"
+    Push-Location $helperSourceDir
+    try {
+      go build -o $helperPath ./cmd/px-tun-helper
+    }
+    finally {
+      Pop-Location
+    }
+    Write-Host "built: $helperPath"
   }
-  Copy-Item $tunExe.FullName (Join-Path $BinDir "tun2socks.exe") -Force
-  Write-Host "downloaded: $(Join-Path $BinDir 'tun2socks.exe')"
+  elseif (-not (Test-Path $helperPath)) {
+    throw "px-tun-helper source not found. Windows 正式发布包默认已自带 px-tun-helper.exe；若当前缺失，请重新解压发布包。开发环境请在仓库根目录执行 Go 构建后再重试。"
+  }
+  else {
+    Write-Host "using existing helper: $helperPath"
+  }
 
   $wintunZip = Join-Path $tmpDir "wintun-$WintunVersion.zip"
   $wintunUrl = "https://www.wintun.net/builds/wintun-$WintunVersion.zip"
@@ -57,7 +65,7 @@ try {
   Write-Host "downloaded: $(Join-Path $BinDir 'wintun.dll')"
 
   Write-Host "cache release: $CacheReleaseUrl"
-  Write-Host "tun2socks version: $Tun2socksVersion"
+  Write-Host "helper path: $helperPath"
   Write-Host "wintun version: $WintunVersion"
 }
 finally {

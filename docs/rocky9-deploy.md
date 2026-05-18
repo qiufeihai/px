@@ -117,7 +117,7 @@ npm run tauri build -- --bundles app
 ## 额外说明
 
 - 首版只支持 TCP，不支持 UDP
-- TUN 通过外部 helper 接到本地 SOCKS5，目前只做全局 TCP
+- TUN 通过外部 helper 接到本地 ingress，目前只做全局 TCP
 - GUI 只做控制面，不进入代理数据热路径
 - 发布与打包见：[client-packaging.md](file:///Users/qiufeihai/workspace/px/docs/client-packaging.md)
 - 本地联调见：[quickstart.md](file:///Users/qiufeihai/workspace/px/docs/quickstart.md)

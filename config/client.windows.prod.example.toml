@@ -6,8 +6,8 @@ log_level = "info"
 
 [tun]
 enabled = false
-helper_path = "bin/px-tun-helper"
-device_name = "utun233"
+helper_path = "bin/px-tun-helper.exe"
+device_name = "wintun"
 primary_interface = ""
-ipv4_addr = "198.18.0.1"
+ipv4_addr = "192.168.123.1"
 mtu = 1500

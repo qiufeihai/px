@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   echo "usage:" >&2
-  echo "  $0 start <helper> <dns_helper> <socks> <device> <interface> <mtu> <loglevel> <tun_ipv4> <gateway> <server_ip> <log_path> <pid_path>" >&2
+  echo "  $0 start <helper> <dns_helper> <proxy_mode> <proxy_addr> <device> <interface> <mtu> <loglevel> <tun_ipv4> <gateway> <server_ip> <log_path> <pid_path>" >&2
   echo "  $0 stop <device> <tun_ipv4> <gateway> <server_ip> <pid_path> <pid_hint>" >&2
   exit 1
 }
@@ -11,6 +11,20 @@ usage() {
 is_running() {
   local pid="$1"
   [[ -n "$pid" ]] && ps -p "$pid" -o pid= >/dev/null 2>&1
+}
+
+detect_helper_kind() {
+  local helper_path="$1"
+  local helper_name=""
+  helper_name="$(basename "$helper_path")"
+  case "$helper_name" in
+    px-tun-helper|px-tun-helper.exe)
+      printf '%s\n' "px-tun-helper"
+      ;;
+    *)
+      printf '%s\n' "tun2socks"
+      ;;
+  esac
 }
 
 delete_routes_best_effort() {
@@ -74,8 +88,21 @@ add_routes() {
   local primary_gateway="$3"
   local server_ip="$4"
 
-  ifconfig "$device_name" "$tun_ipv4" "$tun_ipv4" up
-  route -n add -host "$server_ip" "$primary_gateway"
+  if ! wait_for_interface "$device_name"; then
+    echo "[launcher] tun device not ready: $device_name" >&2
+    return 1
+  fi
+
+  if ! ifconfig "$device_name" "$tun_ipv4" "$tun_ipv4" up; then
+    echo "[launcher] failed to configure tun interface: $device_name" >&2
+    return 1
+  fi
+
+  if ! route -n add -host "$server_ip" "$primary_gateway"; then
+    echo "[launcher] failed to add server bypass route for $server_ip via $primary_gateway" >&2
+    return 1
+  fi
+
   for cidr in \
     1.0.0.0/8 \
     2.0.0.0/7 \
@@ -86,8 +113,28 @@ add_routes() {
     64.0.0.0/2 \
     128.0.0.0/1 \
     198.18.0.0/15; do
-    route -n add -net "$cidr" "$tun_ipv4"
+    if ! route -n add -net "$cidr" "$tun_ipv4"; then
+      echo "[launcher] failed to add route $cidr via $tun_ipv4" >&2
+      return 1
+    fi
   done
+}
+
+wait_for_interface() {
+  local device_name="$1"
+  local attempts="${2:-50}"
+  local delay_s="${3:-0.1}"
+  local attempt=0
+
+  while (( attempt < attempts )); do
+    if ifconfig "$device_name" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "$delay_s"
+    attempt=$((attempt + 1))
+  done
+
+  return 1
 }
 
 resolve_network_service() {
@@ -233,19 +280,20 @@ restore_dns() {
 }
 
 start_cmd() {
-  [[ "$#" -eq 12 ]] || usage
+  [[ "$#" -eq 13 ]] || usage
   local helper_path="$1"
   local dns_helper_path="$2"
-  local socks_addr="$3"
-  local device_name="$4"
-  local primary_interface="$5"
-  local mtu="$6"
-  local log_level="$7"
-  local tun_ipv4="$8"
-  local primary_gateway="$9"
-  local server_ip="${10}"
-  local helper_log_path="${11}"
-  local pid_path="${12}"
+  local proxy_mode="$3"
+  local proxy_addr="$4"
+  local device_name="$5"
+  local primary_interface="$6"
+  local mtu="$7"
+  local log_level="$8"
+  local tun_ipv4="$9"
+  local primary_gateway="${10}"
+  local server_ip="${11}"
+  local helper_log_path="${12}"
+  local pid_path="${13}"
   local helper_pid=""
   local dns_helper_pid=""
   local state_dir=""
@@ -255,6 +303,8 @@ start_cmd() {
   local existing_dns_pid=""
   local helper_name=""
   local dns_helper_name=""
+  local proxy_uri=""
+  local helper_kind=""
 
   mkdir -p "$(dirname "$helper_log_path")"
   : > "$helper_log_path"
@@ -263,6 +313,31 @@ start_cmd() {
   dns_state_path="$state_dir/dns-servers.txt"
   helper_name="$(basename "$helper_path")"
   dns_helper_name="$(basename "$dns_helper_path")"
+  helper_kind="$(detect_helper_kind "$helper_path")"
+
+  case "$proxy_mode" in
+    socks5)
+      proxy_uri="socks5://$proxy_addr"
+      ;;
+    ingress)
+      if [[ "$helper_kind" == "px-tun-helper" ]]; then
+        proxy_uri="ingress://$proxy_addr"
+        echo "[launcher] ingress mode enabled via direct ingress endpoint: $proxy_uri" >>"$helper_log_path"
+      else
+        proxy_uri="socks5://$proxy_addr"
+        echo "[launcher] ingress mode enabled via local socks5 bridge: $proxy_uri" >>"$helper_log_path"
+      fi
+      ;;
+    *)
+      echo "[launcher] unsupported local proxy mode: $proxy_mode" >>"$helper_log_path"
+      exit 2
+      ;;
+  esac
+
+  if [[ "$helper_kind" == "px-tun-helper" && "$proxy_mode" != "ingress" ]]; then
+    echo "[launcher] px-tun-helper currently requires ingress mode, got: $proxy_mode" >>"$helper_log_path"
+    exit 2
+  fi
 
   if [[ -f "$pid_path" ]]; then
     existing_pid="$(cat "$pid_path" 2>/dev/null || true)"
@@ -292,7 +367,7 @@ start_cmd() {
   fi
   kill_pid_best_effort "$existing_pid" || true
   kill_pid_best_effort "$existing_dns_pid" || true
-  kill_matching_processes "$helper_name.*-device $device_name" || true
+  kill_matching_processes "$helper_name.*$device_name" || true
   kill_matching_processes "$dns_helper_name.*--listen 127.0.0.1:53" || true
   restore_dns "$dns_state_path" "$helper_log_path" || true
   delete_routes_best_effort "$device_name" "$tun_ipv4" "$primary_gateway" "$server_ip" || true
@@ -300,7 +375,7 @@ start_cmd() {
 
   "$dns_helper_path" \
     --listen 127.0.0.1:53 \
-    --socks "$socks_addr" \
+    --proxy "$proxy_uri" \
     >>"$helper_log_path" 2>&1 < /dev/null &
   dns_helper_pid="$!"
   echo "[launcher] started dns helper pid=$dns_helper_pid" >>"$helper_log_path"
@@ -318,19 +393,38 @@ start_cmd() {
     exit 1
   fi
 
-  "$helper_path" \
-    -device "$device_name" \
-    -proxy "socks5://$socks_addr" \
-    -interface "$primary_interface" \
-    -mtu "$mtu" \
-    -loglevel "$log_level" \
-    >>"$helper_log_path" 2>&1 < /dev/null &
+  case "$helper_kind" in
+    px-tun-helper)
+      "$helper_path" \
+        --real-device \
+        --device "$device_name" \
+        --ingress "$proxy_addr" \
+        --primary-interface "$primary_interface" \
+        --mtu "$mtu" \
+        --loglevel "$log_level" \
+        --tun-ipv4 "$tun_ipv4" \
+        >>"$helper_log_path" 2>&1 < /dev/null &
+      ;;
+    tun2socks)
+      "$helper_path" \
+        -device "$device_name" \
+        -proxy "$proxy_uri" \
+        -interface "$primary_interface" \
+        -mtu "$mtu" \
+        -loglevel "$log_level" \
+        >>"$helper_log_path" 2>&1 < /dev/null &
+      ;;
+    *)
+      echo "[launcher] unsupported helper kind: $helper_kind" >>"$helper_log_path"
+      exit 2
+      ;;
+  esac
   helper_pid="$!"
-  echo "[launcher] started tun2socks pid=$helper_pid" >>"$helper_log_path"
+  echo "[launcher] started $helper_kind pid=$helper_pid" >>"$helper_log_path"
 
   sleep 1
   if ! is_running "$helper_pid"; then
-    echo "[launcher] tun2socks exited before route setup" >>"$helper_log_path"
+    echo "[launcher] $helper_kind exited before route setup" >>"$helper_log_path"
     cleanup_failed_start
     exit 1
   fi
@@ -361,7 +455,6 @@ stop_cmd() {
   local dns_state_path=""
   local dns_pid=""
   local helper_log_path=""
-  local helper_name="tun2socks"
   local dns_helper_name="px-dns-helper"
   local restore_status=0
 
@@ -390,7 +483,8 @@ stop_cmd() {
     restore_status=1
   fi
   delete_routes_best_effort "$device_name" "$tun_ipv4" "$primary_gateway" "$server_ip"
-  kill_matching_processes "$helper_name.*-device $device_name"
+  kill_matching_processes "tun2socks.*$device_name"
+  kill_matching_processes "px-tun-helper.*$device_name"
   kill_matching_processes "$dns_helper_name.*--listen 127.0.0.1:53"
   rm -f "$dns_pid_path"
   rm -f "$pid_path"

@@ -18,7 +18,7 @@ npm run tauri build -- --bundles app
 
 - GUI 不承载代理数据面，只负责配置和运行时控制
 - 真正转发流量的是共享 runtime
-- TUN 只通过外部 helper 接到本地 SOCKS5，不进入 runtime 热路径
+- TUN 只通过外部 helper 接入，不进入 runtime 热路径
 - 开发模式下，GUI 会把配置、证书、helper 和日志写到 `apps/tauri-ui/.px-dev-runtime/`，避免 `tauri dev` 因源码目录文件变化而重编译
 - macOS 本地验证建议直接打 `.app`，避免额外 `dmg` 打包失败干扰 GUI 联调
 - Windows 发布包直接发便携目录 `zip`，不依赖 `.msi`
@@ -50,7 +50,7 @@ npm run tauri build -- --bundles app
 
 - Release 不会包含服务端私钥
 - 客户端仍需单独下载服务端生成的 `server-cert.pem`
-- Release 会按固定版本自动拉取 `tun2socks`；Windows 还会自动拉取 `wintun.dll`
+- macOS / Windows 正式发布包默认都携带 Go `px-tun-helper`；Windows 仍额外携带 `wintun.dll`
 - 客户端首次使用前仍需按实际 VPS 地址生成自己的 `client.toml`
 - Actions 页面下载的 artifact 现在直接是目录内容，只需解压一次；正式 Release 资产仍是最终的 `zip` / `tar.gz`
 
@@ -62,14 +62,14 @@ npm run tauri build -- --bundles app
 px-vX.Y.Z-xxx/
   px.app | px.exe
   bin/
-    tun2socks | tun2socks.exe
+    px-tun-helper | px-tun-helper.exe
     px-dns-helper
     wintun.dll
   config/
     client.toml
   scripts/
     create-client-prod-config.(sh|ps1)
-    fetch-tun-helper.(sh|ps1)
+    repair-tun-helper.ps1
     macos-tun-helper.sh
 ```
 
@@ -84,7 +84,7 @@ px-vX.Y.Z-xxx/
 - Tauri 会启动共享 runtime
 - 若启用 TUN，GUI 会从当前运行目录下的 `bin/` 查找 helper
 - macOS 启动 TUN 时，GUI 会通过 `scripts/macos-tun-helper.sh` 拉起外部提权 helper，并同时启动 `bin/px-dns-helper` 监听本地 `127.0.0.1:53`
-- macOS TUN 模式会临时把当前主网卡 DNS 指到 `127.0.0.1`，由 `px-dns-helper` 通过现有 SOCKS5/TCP 转发 DNS 查询；停止 TUN 时会恢复原 DNS
+- macOS TUN 模式会临时把当前主网卡 DNS 指到 `127.0.0.1`；`px-dns-helper` 默认会通过本地 ingress 转发 DNS 查询，仅在兼容旧 helper（`tun2socks`）时才会回退经本地 SOCKS5。非 TUN 继续走 `SOCKS5 -> runtime`，TUN 的 Go `px-tun-helper` 直连本地预留 ingress。停止 TUN 时会恢复原 DNS
 - Windows 发布包支持直接双击根目录下的 `px.exe`
 - 正式发布包默认已自带 `bin/` 下的 helper，一般不需要用户手动下载
 
@@ -115,12 +115,20 @@ Set-Location px-v0.1.0-windows
 - Windows Release 为便携目录 `zip`，解压后可直接运行根目录下的 `px.exe`
 - `config/client.toml`
 - `scripts/create-client-prod-config.(sh|ps1)`
-- `scripts/fetch-tun-helper.(sh|ps1)`
 - macOS TUN 提权脚本 `scripts/macos-tun-helper.sh`
 - macOS DNS helper `bin/px-dns-helper`
 - macOS 发布包额外包含 `scripts/open-macos-app.sh`
-- 发布包默认包含 `bin/tun2socks` 或 `bin/tun2socks.exe`
+- macOS 发布包默认包含 `bin/px-tun-helper`
+- Windows 发布包默认包含 `bin/px-tun-helper.exe`
 - Windows 发布包默认包含 `bin/wintun.dll`
+- Windows 发布包额外包含 `scripts/repair-tun-helper.ps1` 作为冷修复脚本
+
+当前状态说明：
+
+- Go `px-tun-helper` 已在开发态通过现有 GUI + macOS launcher 跑通真实浏览器流量
+- 正式发布 macOS 默认值已同步切到 Go helper
+- 当前 macOS 发布形态与开发态主路径一致：`Go px-tun-helper -> ingress -> runtime`
+- Windows 发布链也已切到 `px-tun-helper.exe + wintun.dll`，与 macOS 保持同一 helper 边界
 
 ## 5. 当前注意事项
 
@@ -129,8 +137,10 @@ Set-Location px-v0.1.0-windows
 - `server-cert.pem` 必须和服务端正在使用的证书一致
 - 若证书重签发，客户端也必须同步替换证书文件
 - Windows 下建议用 PowerShell 脚本生成配置
-- 若本地开发目录缺少 helper，可执行 `scripts/fetch-tun-helper.sh` 或 `scripts/fetch-tun-helper.ps1`
-- `fetch-tun-helper` 现在默认优先使用当前仓库的缓存 Release：`tun-helper-cache-v1`，失败后再回退官方源
-- 正式发布后若用户手动删掉了 `bin/`，也可以直接在 GUI 里点击“下载 helper”
+- 开发环境若缺少 macOS helper，可执行 `scripts/install-dev-px-tun-helper.sh`
+- macOS 开发态如需补装 helper，执行 `scripts/install-dev-px-tun-helper.sh`
+- Windows 若缺少 `wintun.dll`，或开发环境需要本地重建 helper，可执行 `scripts/repair-tun-helper.ps1`
+- Windows `repair-tun-helper.ps1` 现在默认优先使用当前仓库的缓存 Release：`tun-helper-cache-v1`，失败后再回退官方源
+- macOS 正式发布后若用户手动删掉了 `bin/px-tun-helper`，建议直接重新解压发布包
 - GUI 现在会按可执行文件位置定位发布目录，双击根目录下的 `.app` 或 `.exe` 即可运行
 - macOS 上第一次点击“TUN 启动”会弹系统管理员授权；这是当前最小可用方案，用来在外部 helper 冷路径完成创建设备和配置路由

@@ -57,6 +57,11 @@ jobs:
           rustc --version
           cargo --version
 
+      - uses: actions/setup-go@v5
+        if: runner.os != 'Linux'
+        with:
+          go-version: '1.26'
+
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: px-release-${{ runner.os }}
@@ -65,25 +70,32 @@ jobs:
         id: tun-helper-cache
         with:
           path: bin
-          key: ${{ runner.os }}-tun-helper-${{ hashFiles('scripts/fetch-tun-helper.sh', 'scripts/fetch-tun-helper.ps1') }}
+          key: ${{ runner.os }}-tun-helper-${{ hashFiles('scripts/fetch-tun-helper.sh', 'scripts/repair-tun-helper.ps1') }}
 
       - name: Install frontend deps
         working-directory: apps/tauri-ui
         run: npm ci
 
-      - name: Fetch TUN helper (macOS/Linux)
-        if: runner.os != 'Windows' && steps.tun-helper-cache.outputs.cache-hit != 'true'
+      - name: Fetch TUN helper (Linux)
+        if: runner.os == 'Linux' && steps.tun-helper-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p bin
           chmod +x scripts/fetch-tun-helper.sh
           scripts/fetch-tun-helper.sh
+
+      - name: Build macOS Go TUN helper
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p bin
+          cd helpers/px-tun-helper
+          go build -o ../../bin/px-tun-helper ./cmd/px-tun-helper
 
       - name: Fetch TUN helper (Windows)
         if: runner.os == 'Windows' && steps.tun-helper-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path bin -Force | Out-Null
-          scripts/fetch-tun-helper.ps1
+          scripts/repair-tun-helper.ps1
 
       - name: Build tauri app
         working-directory: apps/tauri-ui
@@ -96,13 +108,17 @@ jobs:
       - name: Verify TUN helper (macOS/Linux)
         if: runner.os != 'Windows'
         run: |
-          test -f "bin/tun2socks"
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            test -f "bin/px-tun-helper"
+          else
+            test -f "bin/tun2socks"
+          fi
 
       - name: Verify TUN helper (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          if (!(Test-Path "bin/tun2socks.exe")) { throw "missing bin/tun2socks.exe" }
+          if (!(Test-Path "bin/px-tun-helper.exe")) { throw "missing bin/px-tun-helper.exe" }
           if (!(Test-Path "bin/wintun.dll")) { throw "missing bin/wintun.dll" }
 
       - name: Package artifacts
@@ -111,14 +127,17 @@ jobs:
           mkdir -p release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/config
           mkdir -p release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/bin
           mkdir -p release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/scripts
-          cp config/client.prod.example.toml release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/config/client.toml
-          cp scripts/fetch-tun-helper.sh release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/scripts/fetch-tun-helper.sh
           if [[ "${{ matrix.os }}" == windows-* ]]; then
-            test -f "bin/tun2socks.exe"
+            cp config/client.windows.prod.example.toml release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/config/client.toml
+          else
+            cp config/client.prod.example.toml release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/config/client.toml
+          fi
+          if [[ "${{ matrix.os }}" == windows-* ]]; then
+            test -f "bin/px-tun-helper.exe"
             test -f "bin/wintun.dll"
-            cp bin/tun2socks.exe release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/bin/tun2socks.exe
+            cp bin/px-tun-helper.exe release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/bin/px-tun-helper.exe
             cp bin/wintun.dll release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/bin/wintun.dll
-            cp scripts/fetch-tun-helper.ps1 release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/scripts/fetch-tun-helper.ps1
+            cp scripts/repair-tun-helper.ps1 release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/scripts/repair-tun-helper.ps1
             if [[ -f "target/release/px.exe" ]]; then
               cp "target/release/px.exe" "release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/px.exe"
             elif [[ -f "target/release/PX 个人代理.exe" ]]; then
@@ -127,9 +146,9 @@ jobs:
               cp target/release/tauri-ui.exe release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/px.exe
             fi
           else
-            test -f "bin/tun2socks"
+            test -f "bin/px-tun-helper"
             test -f "target/release/px-dns-helper"
-            cp bin/tun2socks release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/bin/tun2socks
+            cp bin/px-tun-helper release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/bin/px-tun-helper
             cp target/release/px-dns-helper release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/bin/px-dns-helper
             cp scripts/open-macos-app.sh release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/scripts/open-macos-app.sh
             cp scripts/macos-tun-helper.sh release/px-${{ needs.resolve-tag.outputs.tag }}-${{ matrix.artifact_suffix }}/scripts/macos-tun-helper.sh
